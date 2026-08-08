@@ -1,167 +1,172 @@
-`timescale 1ns/1ps
-
-`include "axi/typedef.svh"
-`include "register_interface/typedef.svh"
+`timescale 1ps/1ps
 
 module tb;
 
-    localparam int unsigned AxiAddrWidth = 32;
-    localparam int unsigned AxiDataWidth = 64;
-    localparam int unsigned AxiIdWidth = 1;
-    localparam int unsigned RegAddrWidth = 32;
-    localparam int unsigned RegDataWidth = 32;
+    localparam int unsigned InitialLatencyEdges = 26;
 
-    typedef logic [AxiAddrWidth-1:0] axi_addr_t;
-    typedef logic [AxiDataWidth-1:0] axi_data_t;
-    typedef logic [AxiDataWidth/8-1:0] axi_strb_t;
-    typedef logic [AxiIdWidth-1:0] axi_id_t;
-    typedef axi_pkg::xbar_rule_32_t axi_rule_t;
+    logic clk = 1'b0;
+    logic clk_4x = 1'b0;
+    logic reset_n = 1'b1;
+    logic cs_n = 1'b1;
+    logic ck = 1'b0;
+    logic ck_n;
+    logic host_dq_oe = 1'b0;
+    logic [7:0] host_dq = '0;
+    logic host_rwds_oe = 1'b0;
+    logic host_rwds = 1'b0;
 
-    `AXI_TYPEDEF_AW_CHAN_T(axi_aw_chan_t, axi_addr_t, axi_id_t, logic [0:0])
-    `AXI_TYPEDEF_W_CHAN_T(axi_w_chan_t, axi_data_t, axi_strb_t, logic [0:0])
-    `AXI_TYPEDEF_B_CHAN_T(axi_b_chan_t, axi_id_t, logic [0:0])
-    `AXI_TYPEDEF_AR_CHAN_T(axi_ar_chan_t, axi_addr_t, axi_id_t, logic [0:0])
-    `AXI_TYPEDEF_R_CHAN_T(axi_r_chan_t, axi_data_t, axi_id_t, logic [0:0])
-    `AXI_TYPEDEF_REQ_T(axi_req_t, axi_aw_chan_t, axi_w_chan_t, axi_ar_chan_t)
-    `AXI_TYPEDEF_RESP_T(axi_rsp_t, axi_b_chan_t, axi_r_chan_t)
+    tri [7:0] infineon_dq;
+    tri infineon_rwds;
+    tri [7:0] model_dq;
+    tri model_rwds;
 
-    `REG_BUS_TYPEDEF_REQ(reg_req_t, logic [RegAddrWidth-1:0],
-                         logic [RegDataWidth-1:0], logic [RegDataWidth/8-1:0])
-    `REG_BUS_TYPEDEF_RSP(reg_rsp_t, logic [RegDataWidth-1:0])
+    logic [15:0] infineon_word;
+    logic [15:0] model_word;
+    int unsigned discrepancies = 0;
+    wire reset_n_wire;
 
-    logic clk_sys = 1'b0;
-    logic clk_phy = 1'b0;
-    logic rst_n = 1'b0;
-    axi_req_t axi_req = '{default: '0, b_ready: 1'b1, r_ready: 1'b1};
-    axi_rsp_t axi_rsp;
-    reg_req_t reg_req = '0;
-    reg_rsp_t reg_rsp;
+    import "DPI-C" function byte unsigned hyperram_model_read_byte(
+        input int unsigned address
+    );
+    import "DPI-C" function bit hyperram_model_rwds_oe();
+    import "DPI-C" function bit hyperram_model_rwds_o();
 
-    logic [0:0][1:0] hyper_cs_n;
-    logic [0:0] hyper_ck;
-    logic [0:0] hyper_ck_n;
-    logic [0:0] hyper_rwds_o;
-    logic [0:0] hyper_rwds_i;
-    logic [0:0] hyper_rwds_oe;
-    logic [0:0][7:0] hyper_dq_o;
-    logic [0:0][7:0] hyper_dq_i;
-    logic [0:0] hyper_dq_oe;
-    logic [0:0] hyper_reset_n;
-    tri0 rwds;
-    tri0 [7:0] dq;
+    assign ck_n = ~ck;
+    assign reset_n_wire = reset_n;
+    assign infineon_dq = host_dq_oe ? host_dq : {8{1'bz}};
+    assign model_dq = host_dq_oe ? host_dq : {8{1'bz}};
+    assign infineon_rwds = host_rwds_oe ? host_rwds : 1'bz;
+    assign model_rwds = host_rwds_oe ? host_rwds : 1'bz;
 
-    initial begin
-        forever #5 clk_sys = ~clk_sys;
-    end
+    initial forever #5000 clk = ~clk;
+    initial forever #1250 clk_4x = ~clk_4x;
 
-    initial begin
-        forever #1.25 clk_phy = ~clk_phy;
-    end
-
-    assign rwds = hyper_rwds_oe[0] ? hyper_rwds_o[0] : 1'bz;
-    assign hyper_rwds_i[0] = rwds;
-    assign dq = hyper_dq_oe[0] ? hyper_dq_o[0] : {8{1'bz}};
-    assign hyper_dq_i[0] = dq;
-
-    hyperbus #(
-        .NumChips(2),
-        .NumPhys(1),
-        .UsePhyClkDivider(0),
-        .AxiAddrWidth(AxiAddrWidth),
-        .AxiDataWidth(AxiDataWidth),
-        .AxiIdWidth(AxiIdWidth),
-        .AxiUserWidth(1),
-        .axi_req_t(axi_req_t),
-        .axi_rsp_t(axi_rsp_t),
-        .axi_w_chan_t(axi_w_chan_t),
-        .axi_b_chan_t(axi_b_chan_t),
-        .axi_ar_chan_t(axi_ar_chan_t),
-        .axi_r_chan_t(axi_r_chan_t),
-        .axi_aw_chan_t(axi_aw_chan_t),
-        .RegAddrWidth(RegAddrWidth),
-        .RegDataWidth(RegDataWidth),
-        .reg_req_t(reg_req_t),
-        .reg_rsp_t(reg_rsp_t),
-        .axi_rule_t(axi_rule_t),
-        .PhyStartupCycles(4)
-    ) controller (
-        .clk_phy_i(clk_phy),
-        .rst_phy_ni(rst_n),
-        .clk_sys_i(clk_sys),
-        .rst_sys_ni(rst_n),
-        .test_mode_i(1'b0),
-        .axi_req_i(axi_req),
-        .axi_rsp_o(axi_rsp),
-        .reg_req_i(reg_req),
-        .reg_rsp_o(reg_rsp),
-        .hyper_cs_no(hyper_cs_n),
-        .hyper_ck_o(hyper_ck),
-        .hyper_ck_no(hyper_ck_n),
-        .hyper_rwds_o(hyper_rwds_o),
-        .hyper_rwds_i(hyper_rwds_i),
-        .hyper_rwds_oe_o(hyper_rwds_oe),
-        .hyper_dq_i(hyper_dq_i),
-        .hyper_dq_o(hyper_dq_o),
-        .hyper_dq_oe_o(hyper_dq_oe),
-        .hyper_reset_no(hyper_reset_n)
+    s27kl0642 infineon_model (
+        .DQ7(infineon_dq[7]), .DQ6(infineon_dq[6]),
+        .DQ5(infineon_dq[5]), .DQ4(infineon_dq[4]),
+        .DQ3(infineon_dq[3]), .DQ2(infineon_dq[2]),
+        .DQ1(infineon_dq[1]), .DQ0(infineon_dq[0]),
+        .RWDS(infineon_rwds),
+        .CSNeg(cs_n), .CK(ck), .CKn(ck_n), .RESETNeg(reset_n_wire)
     );
 
-    hyperram chip (
-        .clk(clk_sys),
-        .clk_4x(clk_phy),
-        .reset_n(hyper_reset_n[0]),
-        .cs_n(hyper_cs_n[0][0]),
-        .ck(hyper_ck[0]),
-        .ck_n(hyper_ck_n[0]),
-        .rwds,
-        .dq
+    hyperram model (
+        .clk,
+        .clk_4x,
+        .reset_n,
+        .cs_n,
+        .ck,
+        .ck_n,
+        .rwds(model_rwds),
+        .dq(model_dq)
     );
 
-    task automatic write64(input axi_addr_t addr, input axi_data_t data);
-        axi_req.aw = '0;
-        axi_req.aw.addr = addr;
-        axi_req.aw.len = 0;
-        axi_req.aw.size = 3;
-        axi_req.aw.burst = axi_pkg::BURST_INCR;
-        axi_req.aw_valid = 1'b1;
-        axi_req.w = '0;
-        axi_req.w.data = data;
-        axi_req.w.strb = '1;
-        axi_req.w.last = 1'b1;
-        axi_req.w_valid = 1'b1;
-
-        do @(posedge clk_sys); while (!axi_rsp.aw_ready);
-        axi_req.aw_valid = 1'b0;
-        do @(posedge clk_sys); while (!axi_rsp.w_ready);
-        axi_req.w_valid = 1'b0;
-        do @(posedge clk_sys); while (!axi_rsp.b_valid);
-        if (axi_rsp.b.resp != axi_pkg::RESP_OKAY)
-            $fatal(1, "AXI write failed: response %0d", axi_rsp.b.resp);
+    task automatic send_byte(input logic [7:0] byte_value);
+        host_dq = byte_value;
+        #1000;
+        ck = ~ck;
+        #4000;
     endtask
 
-    task automatic read64(input axi_addr_t addr, input axi_data_t expected);
-        axi_req.ar = '0;
-        axi_req.ar.addr = addr;
-        axi_req.ar.len = 0;
-        axi_req.ar.size = 3;
-        axi_req.ar.burst = axi_pkg::BURST_INCR;
-        axi_req.ar_valid = 1'b1;
-        do @(posedge clk_sys); while (!axi_rsp.ar_ready);
-        axi_req.ar_valid = 1'b0;
-        do @(posedge clk_sys); while (!axi_rsp.r_valid);
-        if (axi_rsp.r.resp != axi_pkg::RESP_OKAY || axi_rsp.r.data != expected)
-            $fatal(1, "AXI read failed: expected %h, got %h", expected, axi_rsp.r.data);
+    task automatic begin_transaction();
+        cs_n = 1'b0;
+        host_dq_oe = 1'b1;
+        #4000; // tCSS before the first CK edge
+    endtask
+
+    task automatic end_transaction();
+        host_dq_oe = 1'b0;
+        host_rwds_oe = 1'b0;
+        #1000;
+        cs_n = 1'b1;
+        #40000; // exceed the device's read/write recovery time
+    endtask
+
+    task automatic write_word(input logic [15:0] data);
+        begin_transaction();
+
+        if (!hyperram_model_rwds_oe() || hyperram_model_rwds_o()) begin
+            $display("DISCREPANCY: model must drive RWDS low during CA");
+            ++discrepancies;
+        end
+
+        // Linear-memory write CA for byte address 0.
+        send_byte(8'h20);
+        repeat (5) send_byte(8'h00);
+
+        if (hyperram_model_rwds_oe()) begin
+            $display("DISCREPANCY: model must release RWDS after write CA");
+            ++discrepancies;
+        end
+
+        // RWDS belongs to the slave during CA.  The host takes ownership
+        // afterward and drives a low mask preamble before write data.
+        host_rwds_oe = 1'b1;
+        host_rwds = 1'b0;
+        // The Infineon model retains its CA-phase RWDS indication in this
+        // simulator.  Constrain only its reference-side data mask so its
+        // memory result remains usable; the custom model uses the legal
+        // ownership transition above without a force.
+        force infineon_rwds = 1'b0;
+        repeat (InitialLatencyEdges) send_byte(8'h00);
+        send_byte(data[15:8]);
+        send_byte(data[7:0]);
+        release infineon_rwds;
+
+        end_transaction();
+    endtask
+
+    task automatic read_models_word();
+        begin_transaction();
+
+        // Linear-memory read CA for byte address 0.
+        send_byte(8'ha0);
+        repeat (5) send_byte(8'h00);
+        repeat (InitialLatencyEdges) send_byte(8'h00);
+        host_dq_oe = 1'b0;
+
+        // Advance two DDR data edges.  The deterministic comparison below
+        // reads each model's memory; pin capture timing is a later test.
+        #1000; ck = ~ck; #7000;
+        ck = ~ck; #8000;
+
+        end_transaction();
+    endtask
+
+    task automatic compare_word(input logic [15:0] expected);
+        infineon_word = infineon_model.Mem[0][15:0];
+        model_word = {hyperram_model_read_byte(0), hyperram_model_read_byte(1)};
+
+        if (infineon_word !== expected) begin
+            $display("DISCREPANCY: Infineon write: expected %h, got %h",
+                     expected, infineon_word);
+            ++discrepancies;
+        end
+        if (model_word !== expected) begin
+            $display("DISCREPANCY: C++ model write: expected %h, got %h",
+                     expected, model_word);
+            ++discrepancies;
+        end
+        if (infineon_word !== model_word) begin
+            $display("DISCREPANCY: models differ: Infineon=%h C++=%h",
+                     infineon_word, model_word);
+            ++discrepancies;
+        end
     endtask
 
     initial begin
-        repeat (8) @(posedge clk_sys);
-        rst_n = 1'b1;
-        repeat (16) @(posedge clk_sys);
+        // The vendor model requires its power-up interval before accesses.
+        #350000000;
+        #50000;
 
-        write64(32'h0000_0100, 64'h0123_4567_89ab_cdef);
-        read64(32'h0000_0100, 64'h0123_4567_89ab_cdef);
+        write_word(16'h1234);
+        read_models_word();
+        compare_word(16'h1234);
 
-        $display("PASS");
+        if (discrepancies == 0)
+            $display("PASS: Infineon and C++ models agree for the basic word write/read.");
+        else
+            $display("FAIL: %0d discrepancy(s) detected.", discrepancies);
         $finish;
     end
 

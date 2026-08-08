@@ -71,3 +71,7 @@ Testing/
 
 # Verilator build output
 obj_dir/
+
+# Infineon HyperRAM simulation model: redistribution is license-restricted.
+/S0642-HYPERBUS-model/
+infineon-hyperbus-specification-low-signal-count-high-performance-ddr-bus-additionaltechnicalinformation-en.pdf
