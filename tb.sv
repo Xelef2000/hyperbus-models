@@ -2,6 +2,8 @@
 
 module tb;
 
+    // The reference comparison uses a deterministic 13-clock, fixed-low
+    // profile. A separate test below changes CR0 through Register Space.
     localparam int unsigned InitialLatencyEdges = 26;
 
     logic clk = 1'b0;
@@ -30,6 +32,7 @@ module tb;
     );
     import "DPI-C" function bit hyperram_model_rwds_oe();
     import "DPI-C" function bit hyperram_model_rwds_o();
+    import "DPI-C" function int unsigned hyperram_model_read_configuration_register0();
 
     assign ck_n = ~ck;
     assign reset_n_wire = reset_n;
@@ -50,7 +53,10 @@ module tb;
         .CSNeg(cs_n), .CK(ck), .CKn(ck_n), .RESETNeg(reset_n_wire)
     );
 
-    hyperram model (
+    hyperram #(
+        .CONFIGURATION_REGISTER0_RESET(16'h8f8f),
+        .FIXED_LATENCY_RWDS_HIGH(1'b0)
+    ) model (
         .clk,
         .clk_4x,
         .reset_n,
@@ -82,7 +88,8 @@ module tb;
         #40000; // exceed the device's read/write recovery time
     endtask
 
-    task automatic write_word(input logic [15:0] data);
+    task automatic write_word(input logic [15:0] data,
+                              input int unsigned latency_edges);
         begin_transaction();
 
         if (!hyperram_model_rwds_oe() || hyperram_model_rwds_o()) begin
@@ -108,11 +115,26 @@ module tb;
         // memory result remains usable; the custom model uses the legal
         // ownership transition above without a force.
         force infineon_rwds = 1'b0;
-        repeat (InitialLatencyEdges) send_byte(8'h00);
+        repeat (latency_edges) send_byte(8'h00);
         send_byte(data[15:8]);
         send_byte(data[7:0]);
         release infineon_rwds;
 
+        end_transaction();
+    endtask
+
+    task automatic write_configuration_register0(input logic [15:0] data);
+        begin_transaction();
+        // Register-space, linear write at word address 0x800 (CR0).
+        send_byte(8'h60);
+        send_byte(8'h00);
+        send_byte(8'h01);
+        repeat (3) send_byte(8'h00);
+        host_rwds_oe = 1'b1;
+        host_rwds = 1'b0;
+        repeat (InitialLatencyEdges) send_byte(8'h00);
+        send_byte(data[15:8]);
+        send_byte(data[7:0]);
         end_transaction();
     endtask
 
@@ -159,9 +181,24 @@ module tb;
         #350000000;
         #50000;
 
-        write_word(16'h1234);
+        write_word(16'h1234, InitialLatencyEdges);
         read_models_word();
         compare_word(16'h1234);
+
+        // CR0[7:4] = 0010 selects seven clocks. The following transaction
+        // must use 14 DDR edges because this profile advertises fixed-low
+        // (one count) latency.
+        write_configuration_register0(16'h8f2f);
+        if (hyperram_model_read_configuration_register0() != 16'h8f2f) begin
+            $display("DISCREPANCY: CR0 write was not retained by the model");
+            ++discrepancies;
+        end
+        write_word(16'h5678, 14);
+        model_word = {hyperram_model_read_byte(0), hyperram_model_read_byte(1)};
+        if (model_word != 16'h5678) begin
+            $display("DISCREPANCY: CR0-selected latency did not time the next write");
+            ++discrepancies;
+        end
 
         if (discrepancies == 0)
             $display("PASS: Infineon and C++ models agree for the basic word write/read.");

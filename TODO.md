@@ -34,20 +34,22 @@ overall transaction class is cycle-accurate yet.
 - [x] Capture the six command/address (CA) bytes.
 - [x] Decode the CA read/write bit.
 - [x] Decode the memory address fields needed for basic accesses.
-- [x] Drive RWDS low during CA to advertise the fixed, single-latency policy.
+- [x] Drive a profile-configured RWDS latency indication during CA.
 - [ ] Decode and honor the CA address-space bit (memory versus register space).
 - [ ] Decode and honor the CA burst-type bit (linear versus wrapped burst).
 - [ ] Reject or report reserved/invalid CA encodings.
 - [ ] Model command/address timing and RWDS latency indication during CA.
+- [ ] Add support to model chips with 0 latency writes
 
 ### Read transactions
 
-- [x] Perform basic memory reads after a configurable fixed initial latency.
+- [x] Perform basic memory reads using CR0-selected fixed initial latency.
 - [x] Drive read data on `DQ[7:0]`.
 - [x] Generate a basic toggling `RWDS` read strobe.
 - [x] Continue a basic sequential (linear) read stream until `CS#` ends the transaction.
 - [x] Return `8'hff` for uninitialized memory bytes.
-- [ ] Implement configurable initial latency and RWDS-requested additional latency.
+- [x] Select one or two CR0-defined latency counts in fixed-latency mode.
+- [ ] Request additional latency dynamically in variable-latency mode.
 - [ ] Implement protocol-accurate RWDS/data edge alignment and read turnaround.
 - [ ] Implement variable latency between read words and RWDS error indication.
 - [ ] Implement wrapped and hybrid burst reads, including supported wrap lengths.
@@ -55,11 +57,12 @@ overall transaction class is cycle-accurate yet.
 
 ### Write transactions
 
-- [x] Perform basic memory writes after a configurable fixed initial latency.
+- [x] Perform basic memory writes using CR0-selected fixed initial latency.
 - [x] Honor `RWDS` as a per-byte write mask during basic writes.
 - [x] Release RWDS after write CA so the host can provide its mask preamble.
 - [x] Continue a basic sequential (linear) write stream until `CS#` ends the transaction.
-- [ ] Implement configurable initial latency and RWDS-requested additional latency.
+- [x] Select one or two CR0-defined latency counts in fixed-latency mode.
+- [ ] Request additional latency dynamically in variable-latency mode.
 - [ ] Implement writes without initial latency where configured/supported.
 - [ ] Implement wrapped and hybrid burst writes, including supported wrap lengths.
 - [ ] Implement complete word-oriented write semantics and all byte-mask corner cases.
@@ -70,11 +73,11 @@ overall transaction class is cycle-accurate yet.
 - [x] Store basic memory contents and make them observable through subsequent reads.
 - [x] Parameterize ID and configuration-register reset values as a device profile.
 - [ ] Model the complete advertised memory density/address range and address rollover behavior.
-- [ ] Implement register-space reads.
-- [ ] Implement register-space writes.
-- [ ] Implement device-ID registers.
-- [ ] Implement configuration registers (latency, burst mode/length, drive strength, and related fields).
-- [ ] Apply configuration-register changes to subsequent bus behavior.
+- [x] Implement basic register-space reads (ID0/ID1/CR0/CR1).
+- [x] Implement basic register-space writes (CR0/CR1; IDs are read-only).
+- [x] Implement profile-configured device-ID registers.
+- [x] Implement volatile CR0/CR1 storage; CR0 latency fields are active.
+- [x] Apply CR0 latency changes to subsequent transactions.
 
 ### Reset, power, and device state
 

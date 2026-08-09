@@ -1,14 +1,12 @@
 // HyperRAM chip wrapper.  The C++ core will eventually implement the
 // cycle-accurate HyperBus protocol and memory array.
 module hyperram #(
-    // POR configuration used until configuration-register support exists.
-    parameter int unsigned INITIAL_LATENCY_CYCLES = 13,
-    // S27KS0642-compatible defaults. Override these for another device
-    // profile; register-space transactions will consume them in a later step.
+    // S27KS0642-compatible defaults. Override these for another device.
     parameter logic [15:0] IDENTIFICATION_REGISTER0_RESET = 16'h0c81,
     parameter logic [15:0] IDENTIFICATION_REGISTER1_RESET = 16'h0001,
     parameter logic [15:0] CONFIGURATION_REGISTER0_RESET = 16'h8f2f,
-    parameter logic [15:0] CONFIGURATION_REGISTER1_RESET = 16'hffc1
+    parameter logic [15:0] CONFIGURATION_REGISTER1_RESET = 16'hffc1,
+    parameter bit FIXED_LATENCY_RWDS_HIGH = 1'b1
 ) (
     input  logic       clk,
     input  logic       clk_4x,
@@ -30,14 +28,12 @@ module hyperram #(
         input byte unsigned dq,
         input bit rwds
     );
-    import "DPI-C" function void hyperram_model_set_initial_latency_cycles(
-        input int unsigned cycles
-    );
     import "DPI-C" function void hyperram_model_set_device_profile(
         input int unsigned id0,
         input int unsigned id1,
         input int unsigned config0,
-        input int unsigned config1
+        input int unsigned config1,
+        input bit fixed_latency_rwds_high
     );
     import "DPI-C" function bit hyperram_model_dq_oe();
     import "DPI-C" function byte unsigned hyperram_model_dq_o();
@@ -54,14 +50,12 @@ module hyperram #(
             IDENTIFICATION_REGISTER0_RESET,
             IDENTIFICATION_REGISTER1_RESET,
             CONFIGURATION_REGISTER0_RESET,
-            CONFIGURATION_REGISTER1_RESET
+            CONFIGURATION_REGISTER1_RESET,
+            FIXED_LATENCY_RWDS_HIGH
         );
-        hyperram_model_set_initial_latency_cycles(INITIAL_LATENCY_CYCLES);
     endtask
 
     initial begin
-        if (INITIAL_LATENCY_CYCLES < 3 || INITIAL_LATENCY_CYCLES > 16)
-            $fatal(1, "INITIAL_LATENCY_CYCLES must be in the range 3..16");
         configure_model_profile();
         hyperram_model_reset();
     end
