@@ -39,7 +39,7 @@ overall transaction class is cycle-accurate yet.
 - [ ] Decode and honor the CA burst-type bit (linear versus wrapped burst).
 - [ ] Reject or report reserved/invalid CA encodings.
 - [ ] Model command/address timing and RWDS latency indication during CA.
-- [ ] Add support to model chips with 0 latency writes
+- [ ] Add support to model chips with 0 latency
 
 ### Read transactions
 
@@ -49,7 +49,7 @@ overall transaction class is cycle-accurate yet.
 - [x] Continue a basic sequential (linear) read stream until `CS#` ends the transaction.
 - [x] Return `8'hff` for uninitialized memory bytes.
 - [x] Select one or two CR0-defined latency counts in fixed-latency mode.
-- [ ] Request additional latency dynamically in variable-latency mode.
+- [x] Request additional latency during a profile-configured refresh-busy interval.
 - [ ] Implement protocol-accurate RWDS/data edge alignment and read turnaround.
 - [ ] Implement variable latency between read words and RWDS error indication.
 - [ ] Implement wrapped and hybrid burst reads, including supported wrap lengths.
@@ -62,7 +62,7 @@ overall transaction class is cycle-accurate yet.
 - [x] Release RWDS after write CA so the host can provide its mask preamble.
 - [x] Continue a basic sequential (linear) write stream until `CS#` ends the transaction.
 - [x] Select one or two CR0-defined latency counts in fixed-latency mode.
-- [ ] Request additional latency dynamically in variable-latency mode.
+- [x] Request additional latency during a profile-configured refresh-busy interval.
 - [ ] Implement writes without initial latency where configured/supported.
 - [ ] Implement wrapped and hybrid burst writes, including supported wrap lengths.
 - [ ] Implement complete word-oriented write semantics and all byte-mask corner cases.

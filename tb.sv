@@ -33,6 +33,7 @@ module tb;
     import "DPI-C" function bit hyperram_model_rwds_oe();
     import "DPI-C" function bit hyperram_model_rwds_o();
     import "DPI-C" function int unsigned hyperram_model_read_configuration_register0();
+    import "DPI-C" function bit hyperram_model_refresh_active();
 
     assign ck_n = ~ck;
     assign reset_n_wire = reset_n;
@@ -55,7 +56,10 @@ module tb;
 
     hyperram #(
         .CONFIGURATION_REGISTER0_RESET(16'h8f8f),
-        .FIXED_LATENCY_RWDS_HIGH(1'b0)
+        .FIXED_LATENCY_RWDS_HIGH(1'b0),
+        .VARIABLE_LATENCY_SUPPORTED(1'b1),
+        .REFRESH_INTERVAL_4X_TICKS(1000),
+        .REFRESH_BUSY_4X_TICKS(100)
     ) model (
         .clk,
         .clk_4x,
@@ -89,11 +93,14 @@ module tb;
     endtask
 
     task automatic write_word(input logic [15:0] data,
-                              input int unsigned latency_edges);
+                              input int unsigned latency_edges,
+                              input bit expect_additional_latency);
         begin_transaction();
 
-        if (!hyperram_model_rwds_oe() || hyperram_model_rwds_o()) begin
-            $display("DISCREPANCY: model must drive RWDS low during CA");
+        if (!hyperram_model_rwds_oe() ||
+            hyperram_model_rwds_o() != expect_additional_latency) begin
+            $display("DISCREPANCY: model CA RWDS expected %b, got %b",
+                     expect_additional_latency, hyperram_model_rwds_o());
             ++discrepancies;
         end
 
@@ -181,22 +188,29 @@ module tb;
         #350000000;
         #50000;
 
-        write_word(16'h1234, InitialLatencyEdges);
+        write_word(16'h1234, InitialLatencyEdges, 1'b0);
         read_models_word();
         compare_word(16'h1234);
 
-        // CR0[7:4] = 0010 selects seven clocks. The following transaction
-        // must use 14 DDR edges because this profile advertises fixed-low
-        // (one count) latency.
-        write_configuration_register0(16'h8f2f);
-        if (hyperram_model_read_configuration_register0() != 16'h8f2f) begin
+        // CR0[7:4] = 0010 selects seven clocks; CR0[3] = 0 enables variable
+        // latency. Start the next transaction during a scheduled refresh.
+        write_configuration_register0(16'h8f27);
+        if (hyperram_model_read_configuration_register0() != 16'h8f27) begin
             $display("DISCREPANCY: CR0 write was not retained by the model");
             ++discrepancies;
         end
-        write_word(16'h5678, 14);
+        while (hyperram_model_refresh_active()) #1250;
+        write_word(16'h3456, 14, 1'b0);
+        model_word = {hyperram_model_read_byte(0), hyperram_model_read_byte(1)};
+        if (model_word != 16'h3456) begin
+            $display("DISCREPANCY: idle variable-latency write used the wrong count");
+            ++discrepancies;
+        end
+        while (!hyperram_model_refresh_active()) #1250;
+        write_word(16'h5678, 28, 1'b1);
         model_word = {hyperram_model_read_byte(0), hyperram_model_read_byte(1)};
         if (model_word != 16'h5678) begin
-            $display("DISCREPANCY: CR0-selected latency did not time the next write");
+            $display("DISCREPANCY: refresh-selected latency did not time the next write");
             ++discrepancies;
         end
 

@@ -6,7 +6,10 @@ module hyperram #(
     parameter logic [15:0] IDENTIFICATION_REGISTER1_RESET = 16'h0001,
     parameter logic [15:0] CONFIGURATION_REGISTER0_RESET = 16'h8f2f,
     parameter logic [15:0] CONFIGURATION_REGISTER1_RESET = 16'hffc1,
-    parameter bit FIXED_LATENCY_RWDS_HIGH = 1'b1
+    parameter bit FIXED_LATENCY_RWDS_HIGH = 1'b1,
+    parameter bit VARIABLE_LATENCY_SUPPORTED = 1'b0,
+    parameter int unsigned REFRESH_INTERVAL_4X_TICKS = 0,
+    parameter int unsigned REFRESH_BUSY_4X_TICKS = 0
 ) (
     input  logic       clk,
     input  logic       clk_4x,
@@ -33,7 +36,10 @@ module hyperram #(
         input int unsigned id1,
         input int unsigned config0,
         input int unsigned config1,
-        input bit fixed_latency_rwds_high
+        input bit fixed_latency_rwds_high,
+        input bit variable_latency_supported,
+        input int unsigned refresh_interval_4x_ticks,
+        input int unsigned refresh_busy_4x_ticks
     );
     import "DPI-C" function bit hyperram_model_dq_oe();
     import "DPI-C" function byte unsigned hyperram_model_dq_o();
@@ -51,7 +57,10 @@ module hyperram #(
             IDENTIFICATION_REGISTER1_RESET,
             CONFIGURATION_REGISTER0_RESET,
             CONFIGURATION_REGISTER1_RESET,
-            FIXED_LATENCY_RWDS_HIGH
+            FIXED_LATENCY_RWDS_HIGH,
+            VARIABLE_LATENCY_SUPPORTED,
+            REFRESH_INTERVAL_4X_TICKS,
+            REFRESH_BUSY_4X_TICKS
         );
     endtask
 

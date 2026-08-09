@@ -11,7 +11,10 @@ class HyperramModel {
                  bool rwds);
     void set_device_profile(std::uint16_t id0, std::uint16_t id1,
                             std::uint16_t config0, std::uint16_t config1,
-                            bool fixed_latency_rwds_high);
+                            bool fixed_latency_rwds_high,
+                            bool variable_latency_supported,
+                            unsigned refresh_interval_4x_ticks,
+                            unsigned refresh_busy_4x_ticks);
 
     bool dq_oe() const;
     std::uint8_t dq_o() const;
@@ -19,6 +22,7 @@ class HyperramModel {
     bool rwds_o() const;
     std::uint8_t debug_read_byte(std::uint32_t address) const;
     std::uint16_t debug_configuration_register0() const;
+    bool debug_refresh_active() const;
 
   private:
     enum class MainClockEdge { None, Rising, Falling };
@@ -31,9 +35,13 @@ class HyperramModel {
         std::uint16_t configuration_register0 = 0x8f2f;
         std::uint16_t configuration_register1 = 0xffc1;
         bool fixed_latency_rwds_high = true;
+        bool variable_latency_supported = false;
+        unsigned refresh_interval_4x_ticks = 0;
+        unsigned refresh_busy_4x_ticks = 0;
     };
 
     void reset_transaction();
+    void update_refresh_state();
     void process_bus_edge(std::uint8_t dq, bool rwds);
     void begin_transfer();
     unsigned latency_cycles_from_cr0() const;
@@ -64,6 +72,9 @@ class HyperramModel {
     bool read_transfer_ = false;
     bool register_space_ = false;
     bool additional_latency_ = false;
+    bool refresh_active_ = false;
+    std::uint64_t next_refresh_start_4x_tick_ = 0;
+    std::uint64_t refresh_busy_until_4x_tick_ = 0;
     // Reset values for the device-specific register-space profile.  The
     // registers are stored now so future register transactions can use them.
     DeviceProfile device_profile_;
@@ -92,19 +103,28 @@ void HyperramModel::reset()
     identification_register1_ = device_profile_.identification_register1;
     configuration_register0_ = device_profile_.configuration_register0;
     configuration_register1_ = device_profile_.configuration_register1;
+    refresh_active_ = false;
+    next_refresh_start_4x_tick_ = device_profile_.refresh_interval_4x_ticks;
+    refresh_busy_until_4x_tick_ = 0;
     reset_transaction();
 }
 
 void HyperramModel::set_device_profile(std::uint16_t id0, std::uint16_t id1,
                                        std::uint16_t config0,
                                        std::uint16_t config1,
-                                       bool fixed_latency_rwds_high)
+                                       bool fixed_latency_rwds_high,
+                                       bool variable_latency_supported,
+                                       unsigned refresh_interval_4x_ticks,
+                                       unsigned refresh_busy_4x_ticks)
 {
     device_profile_.identification_register0 = id0;
     device_profile_.identification_register1 = id1;
     device_profile_.configuration_register0 = config0;
     device_profile_.configuration_register1 = config1;
     device_profile_.fixed_latency_rwds_high = fixed_latency_rwds_high;
+    device_profile_.variable_latency_supported = variable_latency_supported;
+    device_profile_.refresh_interval_4x_ticks = refresh_interval_4x_ticks;
+    device_profile_.refresh_busy_4x_ticks = refresh_busy_4x_ticks;
 }
 
 void HyperramModel::reset_transaction()
@@ -124,6 +144,23 @@ void HyperramModel::reset_transaction()
     rwds_o_ = false;
 }
 
+void HyperramModel::update_refresh_state()
+{
+    const unsigned interval = device_profile_.refresh_interval_4x_ticks;
+    const unsigned duration = device_profile_.refresh_busy_4x_ticks;
+    if (!device_profile_.variable_latency_supported || interval == 0 ||
+        duration == 0)
+        return;
+
+    while (cycles_4x_ >= next_refresh_start_4x_tick_) {
+        refresh_active_ = true;
+        refresh_busy_until_4x_tick_ = cycles_4x_ + duration;
+        next_refresh_start_4x_tick_ += interval;
+    }
+    if (refresh_active_ && cycles_4x_ >= refresh_busy_until_4x_tick_)
+        refresh_active_ = false;
+}
+
 void HyperramModel::tick()
 {
     ++cycles_;
@@ -133,6 +170,7 @@ void HyperramModel::tick_4x(bool clk, bool cs_n, bool ck, bool ck_n,
                             std::uint8_t dq, bool rwds)
 {
     ++cycles_4x_;
+    update_refresh_state();
 
     // Each 4x-clock pulse samples the main clock and records any transition.
     if (clk && !previous_main_clk_) {
@@ -162,9 +200,11 @@ void HyperramModel::tick_4x(bool clk, bool cs_n, bool ck, bool ck_n,
         // A slave owns RWDS during CA, before it has received enough CA
         // bits to know the transaction type.  The selected level is latched
         // for this transaction and selects one or two latency counts.
-        additional_latency_ = configuration_register0_ & (1U << 3)
-                                  ? device_profile_.fixed_latency_rwds_high
-                                  : false;
+        if (configuration_register0_ & (1U << 3))
+            additional_latency_ = device_profile_.fixed_latency_rwds_high;
+        else
+            additional_latency_ = device_profile_.variable_latency_supported &&
+                                  refresh_active_;
         rwds_oe_ = true;
         rwds_o_ = additional_latency_;
     }
@@ -342,6 +382,7 @@ std::uint16_t HyperramModel::debug_configuration_register0() const
 {
     return configuration_register0_;
 }
+bool HyperramModel::debug_refresh_active() const { return refresh_active_; }
 
 static HyperramModel model;
 
@@ -360,13 +401,19 @@ void hyperram_model_tick_4x(unsigned char clk, unsigned char cs_n,
 void hyperram_model_set_device_profile(unsigned int id0, unsigned int id1,
                                        unsigned int config0,
                                        unsigned int config1,
-                                       unsigned char fixed_latency_rwds_high)
+                                       unsigned char fixed_latency_rwds_high,
+                                       unsigned char variable_latency_supported,
+                                       unsigned int refresh_interval_4x_ticks,
+                                       unsigned int refresh_busy_4x_ticks)
 {
     model.set_device_profile(static_cast<std::uint16_t>(id0),
                              static_cast<std::uint16_t>(id1),
                              static_cast<std::uint16_t>(config0),
                              static_cast<std::uint16_t>(config1),
-                             fixed_latency_rwds_high != 0);
+                             fixed_latency_rwds_high != 0,
+                             variable_latency_supported != 0,
+                             refresh_interval_4x_ticks,
+                             refresh_busy_4x_ticks);
 }
 
 unsigned char hyperram_model_dq_oe() { return model.dq_oe() ? 1 : 0; }
@@ -380,6 +427,10 @@ unsigned char hyperram_model_read_byte(unsigned int address)
 unsigned int hyperram_model_read_configuration_register0()
 {
     return model.debug_configuration_register0();
+}
+unsigned char hyperram_model_refresh_active()
+{
+    return model.debug_refresh_active() ? 1 : 0;
 }
 
 }
