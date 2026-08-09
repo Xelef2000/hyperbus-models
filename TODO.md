@@ -52,7 +52,8 @@ overall transaction class is cycle-accurate yet.
 - [x] Request additional latency during a profile-configured refresh-busy interval.
 - [ ] Implement protocol-accurate RWDS/data edge alignment and read turnaround.
 - [ ] Implement variable latency between read words and RWDS error indication.
-- [ ] Implement wrapped and hybrid burst reads, including supported wrap lengths.
+- [x] Implement basic CR0-configured wrapped burst reads.
+- [x] Implement basic CR0-configured hybrid burst reads (one wrapped window, then linear).
 - [ ] Implement complete word-oriented read semantics and legal transaction termination behavior.
 
 ### Write transactions
@@ -63,8 +64,9 @@ overall transaction class is cycle-accurate yet.
 - [x] Continue a basic sequential (linear) write stream until `CS#` ends the transaction.
 - [x] Select one or two CR0-defined latency counts in fixed-latency mode.
 - [x] Request additional latency during a profile-configured refresh-busy interval.
-- [ ] Implement writes without initial latency where configured/supported.
-- [ ] Implement wrapped and hybrid burst writes, including supported wrap lengths.
+- [x] Implement profile-configured zero-latency writes for memory and register space.
+- [x] Implement basic CR0-configured wrapped burst writes.
+- [x] Implement basic CR0-configured hybrid burst writes (one wrapped window, then linear).
 - [ ] Implement complete word-oriented write semantics and all byte-mask corner cases.
 - [ ] Implement write-to-read timing (`tRWR`) and bus turnaround requirements.
 

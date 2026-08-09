@@ -14,7 +14,12 @@ class HyperramModel {
                             bool fixed_latency_rwds_high,
                             bool variable_latency_supported,
                             unsigned refresh_interval_4x_ticks,
-                            unsigned refresh_busy_4x_ticks);
+                            unsigned refresh_busy_4x_ticks,
+                            bool zero_latency_memory_writes,
+                            bool zero_latency_register_writes,
+                            bool zero_latency_write_rwds_low);
+    void set_zero_latency_support(bool memory_writes, bool register_writes,
+                                  bool rwds_low);
 
     bool dq_oe() const;
     std::uint8_t dq_o() const;
@@ -38,6 +43,9 @@ class HyperramModel {
         bool variable_latency_supported = false;
         unsigned refresh_interval_4x_ticks = 0;
         unsigned refresh_busy_4x_ticks = 0;
+        bool zero_latency_memory_writes = false;
+        bool zero_latency_register_writes = false;
+        bool zero_latency_write_rwds_low = false;
     };
 
     void reset_transaction();
@@ -52,6 +60,7 @@ class HyperramModel {
     void write_register_byte(std::uint32_t word_address, bool byte_b,
                              std::uint8_t value);
     void advance_data_byte();
+    unsigned wrapped_burst_words_from_cr0() const;
     std::uint8_t read_byte(std::uint32_t address) const;
 
     std::uint64_t cycles_ = 0;
@@ -68,9 +77,15 @@ class HyperramModel {
     unsigned latency_edges_remaining_ = 0;
     std::uint64_t command_address_ = 0;
     std::uint32_t word_address_ = 0;
+    std::uint32_t wrapped_burst_base_word_ = 0;
+    unsigned wrapped_burst_words_ = 0;
+    unsigned wrapped_burst_words_transferred_ = 0;
     bool byte_b_ = false;
     bool read_transfer_ = false;
     bool register_space_ = false;
+    bool linear_burst_ = true;
+    bool hybrid_burst_ = false;
+    bool write_masks_enabled_ = true;
     bool additional_latency_ = false;
     bool refresh_active_ = false;
     std::uint64_t next_refresh_start_4x_tick_ = 0;
@@ -115,7 +130,10 @@ void HyperramModel::set_device_profile(std::uint16_t id0, std::uint16_t id1,
                                        bool fixed_latency_rwds_high,
                                        bool variable_latency_supported,
                                        unsigned refresh_interval_4x_ticks,
-                                       unsigned refresh_busy_4x_ticks)
+                                       unsigned refresh_busy_4x_ticks,
+                                       bool zero_latency_memory_writes,
+                                       bool zero_latency_register_writes,
+                                       bool zero_latency_write_rwds_low)
 {
     device_profile_.identification_register0 = id0;
     device_profile_.identification_register1 = id1;
@@ -125,6 +143,18 @@ void HyperramModel::set_device_profile(std::uint16_t id0, std::uint16_t id1,
     device_profile_.variable_latency_supported = variable_latency_supported;
     device_profile_.refresh_interval_4x_ticks = refresh_interval_4x_ticks;
     device_profile_.refresh_busy_4x_ticks = refresh_busy_4x_ticks;
+    device_profile_.zero_latency_memory_writes = zero_latency_memory_writes;
+    device_profile_.zero_latency_register_writes = zero_latency_register_writes;
+    device_profile_.zero_latency_write_rwds_low = zero_latency_write_rwds_low;
+}
+
+void HyperramModel::set_zero_latency_support(bool memory_writes,
+                                             bool register_writes,
+                                             bool rwds_low)
+{
+    device_profile_.zero_latency_memory_writes = memory_writes;
+    device_profile_.zero_latency_register_writes = register_writes;
+    device_profile_.zero_latency_write_rwds_low = rwds_low;
 }
 
 void HyperramModel::reset_transaction()
@@ -134,9 +164,15 @@ void HyperramModel::reset_transaction()
     latency_edges_remaining_ = 0;
     command_address_ = 0;
     word_address_ = 0;
+    wrapped_burst_base_word_ = 0;
+    wrapped_burst_words_ = 0;
+    wrapped_burst_words_transferred_ = 0;
     byte_b_ = false;
     read_transfer_ = false;
     register_space_ = false;
+    linear_burst_ = true;
+    hybrid_burst_ = false;
+    write_masks_enabled_ = true;
     additional_latency_ = false;
     dq_oe_ = false;
     dq_o_ = 0;
@@ -235,14 +271,37 @@ void HyperramModel::process_bus_edge(std::uint8_t dq, bool rwds)
                 (((command_address_ >> 16) & 0x1fff'ffffULL) << 3) |
                 (command_address_ & 0x7ULL));
             byte_b_ = false;
+            linear_burst_ = ((command_address_ >> 45) & 1U) != 0;
+            if (!linear_burst_) {
+                wrapped_burst_words_ = wrapped_burst_words_from_cr0();
+                wrapped_burst_base_word_ = word_address_ &
+                    ~(static_cast<std::uint32_t>(wrapped_burst_words_) - 1U);
+                wrapped_burst_words_transferred_ = 0;
+                // CR0[2]=0 selects one wrapped window followed by linear
+                // addressing. Register-space accesses remain simple linear
+                // register streams in this model.
+                hybrid_burst_ = !register_space_ &&
+                    (configuration_register0_ & (1U << 2)) == 0;
+            }
             latency_edges_remaining_ = latency_cycles_from_cr0() *
                                        (additional_latency_ ? 4 : 2);
-            bus_state_ = BusState::Latency;
-
-            // For writes with initial latency, hand RWDS ownership to the
-            // master after CA so it can provide its mask preamble and masks.
-            if (!read_transfer_)
-                rwds_oe_ = false;
+            const bool zero_latency_write = !read_transfer_ &&
+                ((register_space_ && device_profile_.zero_latency_register_writes) ||
+                 (!register_space_ && device_profile_.zero_latency_memory_writes));
+            if (zero_latency_write) {
+                // Data starts on the next DDR edge. RWDS is not a mask in
+                // this mode and is either low or high impedance by profile.
+                bus_state_ = BusState::Write;
+                write_masks_enabled_ = false;
+                rwds_oe_ = device_profile_.zero_latency_write_rwds_low;
+                rwds_o_ = false;
+            } else {
+                bus_state_ = BusState::Latency;
+                // For writes with initial latency, hand RWDS ownership to
+                // the master after CA so it can provide its mask preamble.
+                if (!read_transfer_)
+                    rwds_oe_ = false;
+            }
         }
         break;
 
@@ -329,7 +388,7 @@ std::uint8_t HyperramModel::read_register_byte(std::uint32_t word_address,
 void HyperramModel::write_data_byte(std::uint8_t dq, bool rwds)
 {
     // RWDS high masks the corresponding write byte.
-    if (!rwds) {
+    if (!write_masks_enabled_ || !rwds) {
         if (register_space_)
             write_register_byte(word_address_, byte_b_, dq);
         else
@@ -360,8 +419,32 @@ void HyperramModel::write_register_byte(std::uint32_t word_address,
 void HyperramModel::advance_data_byte()
 {
     byte_b_ = !byte_b_;
-    if (!byte_b_)
-        ++word_address_;
+    if (!byte_b_) {
+        if (linear_burst_)
+            ++word_address_;
+        else {
+            ++wrapped_burst_words_transferred_;
+            word_address_ = wrapped_burst_base_word_ |
+                ((word_address_ + 1U) &
+                 (static_cast<std::uint32_t>(wrapped_burst_words_) - 1U));
+            if (hybrid_burst_ &&
+                wrapped_burst_words_transferred_ == wrapped_burst_words_) {
+                word_address_ = wrapped_burst_base_word_ + wrapped_burst_words_;
+                linear_burst_ = true;
+            }
+        }
+    }
+}
+
+unsigned HyperramModel::wrapped_burst_words_from_cr0() const
+{
+    // CR0[1:0] defines a power-of-two byte window. Convert to 16-bit words.
+    switch (configuration_register0_ & 0x3U) {
+      case 0x0: return 64; // 128 bytes
+      case 0x1: return 32; // 64 bytes
+      case 0x2: return 8;  // 16 bytes
+      default: return 16;  // 32 bytes
+    }
 }
 
 std::uint8_t HyperramModel::read_byte(std::uint32_t address) const
@@ -404,7 +487,10 @@ void hyperram_model_set_device_profile(unsigned int id0, unsigned int id1,
                                        unsigned char fixed_latency_rwds_high,
                                        unsigned char variable_latency_supported,
                                        unsigned int refresh_interval_4x_ticks,
-                                       unsigned int refresh_busy_4x_ticks)
+                                       unsigned int refresh_busy_4x_ticks,
+                                       unsigned char zero_latency_memory_writes,
+                                       unsigned char zero_latency_register_writes,
+                                       unsigned char zero_latency_write_rwds_low)
 {
     model.set_device_profile(static_cast<std::uint16_t>(id0),
                              static_cast<std::uint16_t>(id1),
@@ -413,7 +499,18 @@ void hyperram_model_set_device_profile(unsigned int id0, unsigned int id1,
                              fixed_latency_rwds_high != 0,
                              variable_latency_supported != 0,
                              refresh_interval_4x_ticks,
-                             refresh_busy_4x_ticks);
+                             refresh_busy_4x_ticks,
+                             zero_latency_memory_writes != 0,
+                             zero_latency_register_writes != 0,
+                             zero_latency_write_rwds_low != 0);
+}
+
+void hyperram_model_set_zero_latency_support(unsigned char memory_writes,
+                                             unsigned char register_writes,
+                                             unsigned char rwds_low)
+{
+    model.set_zero_latency_support(memory_writes != 0, register_writes != 0,
+                                   rwds_low != 0);
 }
 
 unsigned char hyperram_model_dq_oe() { return model.dq_oe() ? 1 : 0; }
