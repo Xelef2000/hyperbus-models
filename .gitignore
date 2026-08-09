@@ -71,6 +71,7 @@ Testing/
 
 # Verilator build output
 obj_dir/
+obj_dir_*/
 
 # Infineon HyperRAM simulation model: redistribution is license-restricted.
 /S0642-HYPERBUS-model/
