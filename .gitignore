@@ -73,6 +73,7 @@ Testing/
 obj_dir/
 obj_dir_*/
 
-# Infineon HyperRAM simulation model: redistribution is license-restricted.
-/S0642-HYPERBUS-model/
 infineon-hyperbus-specification-low-signal-count-high-performance-ddr-bus-additionaltechnicalinformation-en.pdf
+
+# The repository's simulation entry point is source, not generated output.
+!/Makefile

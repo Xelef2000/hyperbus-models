@@ -54,6 +54,7 @@ class HyperramModel {
     std::uint16_t debug_configuration_register1() const;
     bool debug_refresh_active() const;
     unsigned debug_device_state() const;
+    unsigned debug_bus_state() const;
     unsigned debug_protocol_errors() const;
     unsigned debug_last_error_code() const;
     std::uint64_t debug_last_error_tick() const;
@@ -1015,6 +1016,10 @@ unsigned HyperramModel::debug_device_state() const
 {
     return static_cast<unsigned>(device_state_);
 }
+unsigned HyperramModel::debug_bus_state() const
+{
+    return static_cast<unsigned>(bus_state_);
+}
 unsigned HyperramModel::debug_protocol_errors() const { return protocol_errors_; }
 unsigned HyperramModel::debug_last_error_code() const
 {
@@ -1156,6 +1161,10 @@ unsigned char hyperram_model_refresh_active()
 unsigned int hyperram_model_device_state()
 {
     return model.debug_device_state();
+}
+unsigned int hyperram_model_bus_state()
+{
+    return model.debug_bus_state();
 }
 unsigned int hyperram_model_protocol_errors()
 {

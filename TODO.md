@@ -2,9 +2,10 @@
 
 Reference: *Infineon HyperBus Specification — Low Signal Count, High
 Performance DDR Bus*. This checklist tracks a cycle-accurate HyperBus
-implementation. The current C++/SystemVerilog model is a **slave** model;
-the master section is deliberately left unchecked for a future, separate
-model.
+implementation. The project now contains separate C++/SystemVerilog slave and
+master models. Master checkmarks describe the transaction-level controller's
+implemented behavior; unchecked items remain necessary for cycle-accurate
+support of every compliant slave profile.
 
 ## Cycle-accuracy acceptance criterion
 
@@ -99,54 +100,67 @@ overall transaction class is cycle-accurate yet.
 
 ### Robustness and verification
 
-- [x] Compare a basic read/write sequence against the Infineon reference model in the testbench.
-- [ ] Report protocol violations with actionable diagnostics.
-- [ ] Add directed tests for CA fields, register space, latency modes, masks, bursts, reset, and power states.
-- [ ] Add randomized transaction and back-to-back transaction tests against the reference model.
-- [ ] Add assertions/coverage for edge alignment, ownership, and all state transitions.
+- [x] Verify a basic read/write sequence in the C++ model testbench.
+- [x] Report protocol violations with actionable diagnostics.
+- [x] Add directed tests for CA fields, register space, latency modes, masks, bursts, reset, and power states.
+- [x] Add randomized and back-to-back transaction tests for the C++ model.
+- [x] Add assertions/coverage for edge alignment, ownership, and all state transitions.
 
-## Master model (future separate model)
+## Master model
 
 ### Physical interface and clocking
 
-- [ ] Drive `CS#`, differential `CK`/`CK#`, `DQ[7:0]`, and `RWDS` with correct ownership changes.
-- [ ] Generate legal DDR clocking, including start/stop behavior and duty-cycle requirements.
-- [ ] Observe setup/hold, output-enable, and turnaround timing.
-- [ ] Support clock-rate selection and the required 4×-clock internal scheduling.
+- [x] Drive `CS#`, complementary `CK`/`CK#`, `DQ[7:0]`, and `RWDS` with correct basic ownership changes.
+- [x] Generate legal basic DDR clocking, including CK-Low start/stop behavior.
+- [x] Enforce profile CS#, CA/write setup/hold, CK duty-cycle, and turnaround timing.
+- [ ] Model physical output-enable/disable and board-level output-delay calibration.
+- [x] Use the required 4×-clock internal scheduler for pin-level sequencing.
+- [ ] Validate profile-selected single-ended versus differential clock operation.
 
 ### Command generation
 
-- [ ] Generate all six CA bytes.
-- [ ] Encode read/write, memory/register-space, burst-type, and address fields.
-- [ ] Support legal CS# framing and transaction termination.
-- [ ] Support linear, wrapped, and hybrid bursts.
+- [x] Generate all six CA bytes.
+- [x] Encode read/write, memory/register-space, burst-type, and address fields.
+- [x] Support legal basic CS# framing and transaction termination.
+- [x] Support linear, wrapped, and slave-configured hybrid bursts.
+- [ ] Validate reserved CA encodings and device-specific command restrictions.
 
 ### Read engine
 
-- [ ] Issue memory and register reads.
-- [ ] Sample DQ using RWDS with protocol-correct edge alignment.
-- [ ] Interpret RWDS during CA to select normal or additional initial latency.
-- [ ] Handle variable inter-word latency and read error indication.
-- [ ] Support arbitrary legal read lengths and byte/word alignment rules.
+- [x] Issue memory and register reads.
+- [x] Sample DQ using RWDS with basic DDR edge alignment.
+- [x] Interpret RWDS during CA to select normal or additional CR0-controlled initial latency.
+- [x] Handle profile-gated variable inter-word latency and RWDS read stalls.
+- [x] Safely abort malformed read ordering and bounded missing Byte-A/Byte-B strobes.
+- [ ] Handle all device-specific read error indications and timeout recovery policies.
+- [x] Support arbitrary positive 16-bit-word read lengths and reject unaligned byte addresses.
+- [x] Enforce finite memory geometry and profile-controlled address rollover policy.
+- [x] Profile-qualify read RWDS and delay DQ capture relative to the strobe.
 
 ### Write engine
 
-- [ ] Issue memory and register writes.
-- [ ] Drive write data with DDR timing.
-- [ ] Drive RWDS byte masks for initial-latency writes.
-- [ ] Support writes without initial latency where configured/supported.
-- [ ] Enforce write-to-read turnaround timing.
+- [x] Issue memory and register writes.
+- [x] Drive basic DDR write data timing.
+- [x] Drive RWDS byte masks for initial-latency writes.
+- [x] Support configured zero-latency memory and register writes.
+- [x] Enforce write-to-read turnaround timing.
+- [x] Support profile-required write data setup/hold and termination timing.
 
 ### Configuration, reset, and power
 
-- [ ] Discover device capabilities and read device-ID registers.
-- [ ] Read and program configuration registers.
-- [ ] Adapt transactions to configured latency, burst, and drive settings.
-- [ ] Execute and recover from reset and power-state transitions.
+- [x] Read device-ID registers through the transaction interface.
+- [x] Read and program configuration registers.
+- [x] Adapt transactions to CR0-controlled latency and wrapped/hybrid burst settings.
+- [x] Expose a complete slave-profile configuration surface, including future timing, refresh, power, geometry, and clocking options.
+- [ ] Discover capabilities automatically and validate the configured profile against ID/register values.
+- [ ] Adapt transactions to variable-latency, refresh, drive-strength, and all timing settings.
+- [x] Enforce profile-configured reset recovery before discovery or traffic.
+- [ ] Execute deep-power-down and hybrid-sleep entry/exit transactions and recovery.
 
 ### Robustness and verification
 
 - [ ] Detect timeouts, invalid RWDS behavior, protocol errors, and reset/power interruptions.
-- [ ] Provide a transaction-level interface with completion and error reporting.
-- [ ] Verify directed, randomized, and back-to-back operations against the slave/reference model.
+- [x] Provide a transaction-level interface with completion and error reporting.
+- [x] Verify directed normal-latency, zero-latency, register, linear, and wrapped operations against the slave model.
+- [ ] Add randomized and back-to-back controller operations against the C++ slave model.
 - [ ] Add assertions and coverage for all bus ownership and protocol state transitions.

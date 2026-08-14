@@ -41,8 +41,8 @@ module hyperram #(
     // A value of zero disables the corresponding duty-cycle check.
     parameter int unsigned T_CK_HIGH_MIN_4X_TICKS = 0,
     parameter int unsigned T_CK_LOW_MIN_4X_TICKS = 0,
-    // Output timing is profile-specific. The defaults match the supplied
-    // S27KS0642 reference model's 200 MHz timing selection.
+    // Output timing is profile-specific. The defaults match a 200 MHz
+    // S27KS0642-compatible timing selection.
     parameter time T_DQ_OUTPUT_DELAY = 5000ps,
     parameter time T_RWDS_OUTPUT_DELAY = 5000ps,
     parameter time T_DQ_OUTPUT_DISABLE_DELAY = 5000ps,

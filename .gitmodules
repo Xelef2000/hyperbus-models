@@ -1,3 +1,0 @@
-[submodule "hyperbus"]
-	path = hyperbus
-	url = https://github.com/pulp-platform/hyperbus.git

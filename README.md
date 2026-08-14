@@ -1,20 +1,69 @@
 # HyperBus / HyperRAM model
 
-This project provides a cycle-scheduled HyperRAM slave model: a SystemVerilog
-pin wrapper (`hyperram/hyperram.sv`) backed by a C++ protocol and memory core.
-The `tb.sv` testbench compares basic transactions with the included Infineon
-reference model and adds directed checks for model-specific behavior.
+This project provides cycle-scheduled C++ HyperRAM slave and controller
+models, each exposed through a SystemVerilog pin wrapper. The directed tests
+exercise the C++ protocol and memory cores.
 
 ## Run
 
 ```sh
 CCACHE_DISABLE=1 make run
 CCACHE_DISABLE=1 make test-read-stall
+CCACHE_DISABLE=1 make test-random
+CCACHE_DISABLE=1 make test-controller
+CCACHE_DISABLE=1 make test-controller-zero-latency
+CCACHE_DISABLE=1 make test-controller-read-stall
+CCACHE_DISABLE=1 make test-controller-read-timing
+CCACHE_DISABLE=1 make test-controller-read-error
+CCACHE_DISABLE=1 make test-controller-geometry
+CCACHE_DISABLE=1 make test-controller-timing
+# Run the complete directed, stall, and randomized suite.
+CCACHE_DISABLE=1 make test
 ```
 
 `CCACHE_DISABLE=1` avoids a host-specific ccache filesystem issue.
 `test-read-stall` is a standalone deterministic fixture for the optional
-inter-word refresh-collision behavior.
+inter-word refresh-collision behavior. `test-random` executes 24
+deterministic randomized, variable-length normal-latency write bursts with
+minimal CS# gaps and checks every touched word against the C++ model.
+
+`test-controller` brings up the new controller transaction shell with the
+HyperRAM slave on shared pins. `test-controller-zero-latency` validates a
+profile whose memory-write data begins immediately after CA and does not use
+RWDS byte masks. `test-controller-read-stall` validates a refresh-collision
+inter-word RWDS stall. `test-controller-read-timing` validates qualified RWDS
+sampling with DQ intentionally delayed relative to the strobe.
+`test-controller-read-error` injects missing read strobes and verifies safe
+controller recovery without publishing partial data.
+`test-controller-geometry` verifies finite-memory boundary handling and
+pre-pin out-of-range rejection.
+`test-controller-timing` checks non-default CS#, CK, and turnaround timing
+deadlines. The complete `make test` target includes all directed tests.
+
+## Controller model scaffold
+
+`controller/hyperbus_controller.sv` is the SystemVerilog wrapper for the new
+cycle-scheduled C++ master core in `controller/hyperbus_controller_model.cpp`.
+It uses `clk` for the simple request/response interface and `clk_4x` for
+future pin scheduling. Its intentionally small interface provides:
+
+- a request channel (`request_*`) describing read/write, memory/register
+  space, linear/wrapped mode, address, and word count;
+- streaming write-data/mask and read-data channels; and
+- a response channel with an explicit error bit.
+
+At this stage, aligned linear memory bursts emit one CA sequence, select normal
+or additional fixed latency from CA RWDS, and transfer any positive number of
+RWDS-framed 16-bit words through the simple read/response channels. Equivalent
+Normal-latency writes drive an RWDS-low preamble followed by masked DDR data;
+profiles that enable zero-latency memory/register writes instead start data
+directly after CA with profile-controlled RWDS ownership.
+The controller can pause CK between payload words when its local read or write
+channel stalls, selects HyperRAM register space with CA[46], and derives its
+initial latency from a CR0 shadow updated by successful CR0 writes. It also
+selects linear versus wrapped/hybrid slave addressing with CA[45]. Malformed
+length/alignment requests receive distinct validation errors. The full
+interface contract is documented in `controller/README.md`.
 
 ## Implemented behavior
 
@@ -104,3 +153,16 @@ for testbenches and scoreboards:
 An error does not terminate simulation. The slave either continues at the
 defined safe boundary or ignores the unsupported transaction, letting the
 testbench report the rejected condition without masking later failures.
+
+## Verification
+
+`tb.sv` contains directed checks for CA decoding, register reads/writes,
+initial and refresh-selected latency, all normal-latency byte-mask
+combinations, linear/wrapped/hybrid bursts, zero-latency writes, reset, deep
+power-down, hybrid sleep, clock framing, finite-memory behavior, and pin
+turnaround. It also contains immediate assertions for logical bus ownership
+and read-RWDS edge alignment, plus state/transition coverage that requires
+all reset, DPD, and hybrid-sleep arcs to be observed.
+
+The directed tests check the C++ model's RWDS ownership and normal-latency
+write-mask handling directly.
