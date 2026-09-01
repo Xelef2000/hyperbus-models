@@ -30,13 +30,7 @@ module tb_random;
     initial forever #5000 clk = ~clk;
     initial forever #1250 clk_4x = ~clk_4x;
 
-    hyperram #(
-        .CONFIGURATION_REGISTER0_RESET(16'h8f8f),
-        .FIXED_LATENCY_RWDS_HIGH(1'b0),
-        .T_RWR_4X_TICKS(0),
-        .T_CA_SETUP_4X_TICKS(1), .T_CA_HOLD_4X_TICKS(1),
-        .T_WRITE_SETUP_4X_TICKS(1), .T_WRITE_HOLD_4X_TICKS(1)
-    ) model (
+    hyperram #(.CHIP_PROFILE("test_default")) model (
         .clk, .clk_4x, .reset_n, .cs_n, .ck, .ck_n,
         .rwds(model_rwds), .dq(model_dq)
     );

@@ -19,15 +19,7 @@ module tb_read_stall;
     initial forever #5000 clk = ~clk;
     initial forever #1250 clk_4x = ~clk_4x;
 
-    hyperram #(
-        .CONFIGURATION_REGISTER0_RESET(16'h8f8f),
-        .FIXED_LATENCY_RWDS_HIGH(1'b0),
-        .VARIABLE_LATENCY_SUPPORTED(1'b1),
-        .INTER_WORD_VARIABLE_LATENCY_SUPPORTED(1'b1),
-        .INTER_WORD_STALL_EDGES(2),
-        .T_DQ_OUTPUT_DELAY(0), .T_RWDS_OUTPUT_DELAY(0),
-        .T_DQ_OUTPUT_DISABLE_DELAY(0), .T_RWDS_OUTPUT_DISABLE_DELAY(0)
-    ) dut (.*);
+    hyperram #(.CHIP_PROFILE("test_read_stall")) dut (.*);
 
     task automatic send_byte(input logic [7:0] value);
         host_dq = value;

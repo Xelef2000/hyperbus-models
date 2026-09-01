@@ -42,12 +42,7 @@ module tb_controller_read_error;
         ++failures;
     end
 
-    hyperbus_controller #(
-        .CONFIGURATION_REGISTER0_RESET(16'h8f8f),
-        .INITIAL_READ_STROBE_TIMEOUT_4X_TICKS(6),
-        .READ_BYTE_B_TIMEOUT_4X_TICKS(6),
-        .UNEXPECTED_RWDS_FATAL(1'b1)
-    ) controller (
+    hyperbus_controller #(.CHIP_PROFILE("test_read_error")) controller (
         .clk, .clk_4x, .reset_n,
         .request_valid_i(request_valid), .request_ready_o(request_ready),
         .request_write_i(request_write),

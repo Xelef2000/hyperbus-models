@@ -1,6 +1,8 @@
 #include <cstdint>
 #include <unordered_map>
 
+#include "profiles/chip_profile.hpp"
+
 // Minimal cycle-accurate HyperRAM behavioural core.  It supports the memory
 // address space, fixed initial latency, and linear read/write bursts.
 class HyperramModel {
@@ -39,6 +41,8 @@ class HyperramModel {
                             unsigned inter_word_stall_edges,
                             unsigned t_ck_high_min_4x_ticks,
                             unsigned t_ck_low_min_4x_ticks);
+    bool select_profile(const char* name);
+    std::uint64_t output_timing(unsigned index) const;
     void set_zero_latency_support(bool memory_writes, bool register_writes,
                                   bool rwds_low);
     void set_memory_geometry(std::uint32_t bytes, bool rollover);
@@ -122,7 +126,6 @@ class HyperramModel {
     void accept_bus_edge(std::uint8_t dq, bool rwds, bool rising_edge);
     void process_bus_edge(std::uint8_t dq, bool rwds, bool rising_edge);
     void begin_transfer();
-    unsigned latency_cycles_from_cr0() const;
     std::uint8_t read_data_byte();
     std::uint8_t read_register_byte(std::uint32_t word_address,
                                     bool byte_b) const;
@@ -204,6 +207,7 @@ class HyperramModel {
     // Reset values for the device-specific register-space profile.  The
     // registers are stored now so future register transactions can use them.
     DeviceProfile device_profile_;
+    const hyperram_profile::ChipProfile* selected_profile_ = nullptr;
     std::uint16_t identification_register0_ = 0;
     std::uint16_t identification_register1_ = 0;
     std::uint16_t configuration_register0_ = 0;
@@ -215,6 +219,47 @@ class HyperramModel {
     bool rwds_oe_ = false;
     bool rwds_o_ = false;
 };
+
+bool HyperramModel::select_profile(const char* name)
+{
+    const auto* profile = hyperram_profile::find(name ? name : "");
+    if (!profile)
+        return false;
+    selected_profile_ = profile;
+    set_device_profile(profile->identification_register0, profile->identification_register1,
+        profile->configuration_register0, profile->configuration_register1,
+        profile->fixed_latency_rwds_high, profile->variable_latency_supported,
+        profile->refresh_interval_4x_ticks, profile->refresh_busy_4x_ticks,
+        profile->zero_latency_memory_writes, profile->zero_latency_register_writes,
+        profile->zero_latency_write_rwds_low, profile->t_rwr_4x_ticks,
+        profile->t_css_4x_ticks, profile->t_reset_recovery_4x_ticks,
+        profile->reset_clears_memory, profile->deep_power_down_supported,
+        profile->t_dpd_entry_4x_ticks, profile->t_dpd_exit_4x_ticks,
+        profile->t_csdpd_4x_ticks, profile->hybrid_sleep_supported,
+        profile->t_hs_entry_4x_ticks, profile->t_hs_exit_4x_ticks,
+        profile->t_cshs_4x_ticks, profile->differential_clock_mode,
+        profile->t_ca_setup_4x_ticks, profile->t_ca_hold_4x_ticks,
+        profile->t_write_setup_4x_ticks, profile->t_write_hold_4x_ticks,
+        profile->inter_word_variable_latency_supported, profile->inter_word_stall_edges,
+        profile->t_ck_high_min_4x_ticks, profile->t_ck_low_min_4x_ticks);
+    set_memory_geometry(profile->memory_density_bytes, profile->address_rollover);
+    return true;
+}
+
+std::uint64_t HyperramModel::output_timing(unsigned index) const
+{
+    if (!selected_profile_)
+        return 5000;
+    switch (index) {
+      case 0: return selected_profile_->t_dq_output_delay_ps;
+      case 1: return selected_profile_->t_rwds_output_delay_ps;
+      case 2: return selected_profile_->t_dq_output_disable_delay_ps;
+      case 3: return selected_profile_->t_rwds_output_disable_delay_ps;
+      case 4: return selected_profile_->t_dq_data_valid_delay_ps;
+      case 5: return selected_profile_->t_rwds_strobe_delay_ps;
+      default: return 0;
+    }
+}
 
 void HyperramModel::reset()
 {
@@ -709,8 +754,11 @@ void HyperramModel::process_bus_edge(std::uint8_t dq, bool rwds,
                 hybrid_burst_ = !register_space_ &&
                     (configuration_register0_ & (1U << 2)) == 0;
             }
-            latency_edges_remaining_ = latency_cycles_from_cr0() *
-                                       (additional_latency_ ? 4 : 2);
+            const auto latency = selected_profile_
+                ? selected_profile_->latency.initial_latency(configuration_register0_,
+                                                              additional_latency_, false)
+                : hyperram_profile::InitialLatency{7, additional_latency_};
+            latency_edges_remaining_ = latency.clock_cycles * 2U;
             const bool zero_latency_write = !read_transfer_ &&
                 ((register_space_ && device_profile_.zero_latency_register_writes) ||
                  (!register_space_ && device_profile_.zero_latency_memory_writes));
@@ -797,27 +845,6 @@ void HyperramModel::begin_transfer()
         bus_state_ = BusState::Write;
         byte_b_ = false;
         word_phase_ = WordPhase::ByteA;
-    }
-}
-
-unsigned HyperramModel::latency_cycles_from_cr0() const
-{
-    switch ((configuration_register0_ >> 4) & 0xfU) {
-      case 0x0: return 5;
-      case 0x1: return 6;
-      case 0x2: return 7;
-      case 0x3: return 8;
-      case 0x4: return 9;
-      case 0x5: return 10;
-      case 0x6: return 11;
-      case 0x7: return 12;
-      case 0x8: return 13;
-      case 0x9: return 14;
-      case 0xa: return 15;
-      case 0xb: return 16;
-      case 0xe: return 3;
-      case 0xf: return 4;
-      default: return 7; // Reserved encodings use the profile-safe value.
     }
 }
 
@@ -1038,6 +1065,16 @@ static HyperramModel model;
 
 extern "C" {
 
+unsigned char hyperram_model_select_profile(const char* name)
+{
+    return model.select_profile(name) ? 1 : 0;
+}
+
+unsigned long long hyperram_model_output_timing(unsigned int index)
+{
+    return model.output_timing(index);
+}
+
 void hyperram_model_reset() { model.reset(); }
 void hyperram_model_tick() { model.tick(); }
 
@@ -1047,72 +1084,6 @@ void hyperram_model_tick_4x(unsigned char reset_n, unsigned char clk, unsigned c
 {
     model.tick_4x(reset_n != 0, clk != 0, cs_n != 0, ck != 0, ck_n != 0,
                   dq, rwds != 0);
-}
-
-void hyperram_model_set_device_profile(unsigned int id0, unsigned int id1,
-                                       unsigned int config0,
-                                       unsigned int config1,
-                                       unsigned char fixed_latency_rwds_high,
-                                       unsigned char variable_latency_supported,
-                                       unsigned int refresh_interval_4x_ticks,
-                                       unsigned int refresh_busy_4x_ticks,
-                                       unsigned char zero_latency_memory_writes,
-                                       unsigned char zero_latency_register_writes,
-                                       unsigned char zero_latency_write_rwds_low,
-                                       unsigned int t_rwr_4x_ticks,
-                                       unsigned int t_css_4x_ticks,
-                                       unsigned int t_reset_recovery_4x_ticks,
-                                       unsigned char reset_clears_memory,
-                                       unsigned char deep_power_down_supported,
-                                       unsigned int t_dpd_entry_4x_ticks,
-                                       unsigned int t_dpd_exit_4x_ticks,
-                                       unsigned int t_csd_pd_4x_ticks,
-                                       unsigned char hybrid_sleep_supported,
-                                       unsigned int t_hs_entry_4x_ticks,
-                                       unsigned int t_hs_exit_4x_ticks,
-                                       unsigned int t_cshs_4x_ticks,
-                                       unsigned char differential_clock_mode,
-                                       unsigned int t_ca_setup_4x_ticks,
-                                       unsigned int t_ca_hold_4x_ticks,
-                                       unsigned int t_write_setup_4x_ticks,
-                                       unsigned int t_write_hold_4x_ticks,
-                                       unsigned char inter_word_variable_latency_supported,
-                                       unsigned int inter_word_stall_edges,
-                                       unsigned int t_ck_high_min_4x_ticks,
-                                       unsigned int t_ck_low_min_4x_ticks)
-{
-    model.set_device_profile(static_cast<std::uint16_t>(id0),
-                             static_cast<std::uint16_t>(id1),
-                             static_cast<std::uint16_t>(config0),
-                             static_cast<std::uint16_t>(config1),
-                             fixed_latency_rwds_high != 0,
-                             variable_latency_supported != 0,
-                             refresh_interval_4x_ticks,
-                             refresh_busy_4x_ticks,
-                             zero_latency_memory_writes != 0,
-                             zero_latency_register_writes != 0,
-                             zero_latency_write_rwds_low != 0,
-                             t_rwr_4x_ticks,
-                             t_css_4x_ticks,
-                             t_reset_recovery_4x_ticks,
-                             reset_clears_memory != 0,
-                             deep_power_down_supported != 0,
-                             t_dpd_entry_4x_ticks,
-                             t_dpd_exit_4x_ticks,
-                             t_csd_pd_4x_ticks,
-                             hybrid_sleep_supported != 0,
-                             t_hs_entry_4x_ticks,
-                             t_hs_exit_4x_ticks,
-                             t_cshs_4x_ticks,
-                             differential_clock_mode != 0,
-                             t_ca_setup_4x_ticks,
-                             t_ca_hold_4x_ticks,
-                             t_write_setup_4x_ticks,
-                             t_write_hold_4x_ticks,
-                             inter_word_variable_latency_supported != 0,
-                             inter_word_stall_edges,
-                             t_ck_high_min_4x_ticks,
-                             t_ck_low_min_4x_ticks);
 }
 
 void hyperram_model_set_zero_latency_support(unsigned char memory_writes,

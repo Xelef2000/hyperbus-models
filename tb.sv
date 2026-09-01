@@ -102,29 +102,7 @@ module tb;
         have_previous_device_state = 1'b1;
     end
 
-    hyperram #(
-        .CONFIGURATION_REGISTER0_RESET(16'h8f8f),
-        .FIXED_LATENCY_RWDS_HIGH(1'b0),
-        .VARIABLE_LATENCY_SUPPORTED(1'b1),
-        .REFRESH_INTERVAL_4X_TICKS(1000),
-        .REFRESH_BUSY_4X_TICKS(100),
-        .T_RWR_4X_TICKS(28),
-        .T_RESET_RECOVERY_4X_TICKS(8),
-        .RESET_CLEARS_MEMORY(1'b0),
-        .DEEP_POWER_DOWN_SUPPORTED(1'b1),
-        .T_DPD_ENTRY_4X_TICKS(8),
-        .T_DPD_EXIT_4X_TICKS(16),
-        .T_CSDPD_4X_TICKS(12),
-        .HYBRID_SLEEP_SUPPORTED(1'b1),
-        .T_HS_ENTRY_4X_TICKS(8),
-        .T_HS_EXIT_4X_TICKS(16),
-        .T_CSHS_4X_TICKS(12),
-        .DIFFERENTIAL_CLOCK_MODE(1'b1),
-        .T_CA_SETUP_4X_TICKS(1),
-        .T_CA_HOLD_4X_TICKS(1),
-        .T_WRITE_SETUP_4X_TICKS(1),
-        .T_WRITE_HOLD_4X_TICKS(1)
-    ) model (
+    hyperram #(.CHIP_PROFILE("test_main")) model (
         .clk,
         .clk_4x,
         .reset_n,

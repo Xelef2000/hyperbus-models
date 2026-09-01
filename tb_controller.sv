@@ -44,9 +44,7 @@ module tb_controller;
         end
     end
 
-    hyperbus_controller #(
-        .CONFIGURATION_REGISTER0_RESET(16'h8f8f)
-    ) controller (
+    hyperbus_controller #(.CHIP_PROFILE("generic_hyperram_controller")) controller (
         .clk, .clk_4x, .reset_n,
         .request_valid_i(request_valid), .request_ready_o(request_ready),
         .request_write_i(request_write),
@@ -64,12 +62,7 @@ module tb_controller;
         .hyper_rwds_oe_o(rwds_oe), .hyper_rwds_o(rwds_o), .hyper_rwds_i(rwds)
     );
 
-    hyperram #(
-        .CONFIGURATION_REGISTER0_RESET(16'h8f8f),
-        .FIXED_LATENCY_RWDS_HIGH(1'b0),
-        .T_DQ_OUTPUT_DELAY(0), .T_RWDS_OUTPUT_DELAY(0),
-        .T_DQ_OUTPUT_DISABLE_DELAY(0), .T_RWDS_OUTPUT_DISABLE_DELAY(0)
-    ) memory (
+    hyperram #(.CHIP_PROFILE("test_default")) memory (
         .clk, .clk_4x, .reset_n, .cs_n,
         .ck, .ck_n, .dq, .rwds
     );

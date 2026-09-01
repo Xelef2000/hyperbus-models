@@ -1,5 +1,7 @@
 #include <cstdint>
 
+#include "profiles/chip_profile.hpp"
+
 // Cycle-scheduled HyperBus master-model core.  This intentionally begins as
 // a safe transaction-shell: it accepts the simple request interface and
 // reports an unsupported completion until pin-level transfer states are added.
@@ -28,6 +30,7 @@ class HyperbusControllerModel {
     void set_profile_discovery(bool enabled, bool adopt_cr0,
                                std::uint16_t id0, std::uint16_t id1,
                                std::uint16_t cr0, std::uint16_t cr1);
+    bool select_profile(const char* name);
     void tick_system(bool reset_n, bool request_valid, bool request_write,
                      bool request_register_space, bool request_linear_burst,
                      std::uint32_t request_address, unsigned request_words,
@@ -78,7 +81,6 @@ class HyperbusControllerModel {
         AddressOutOfRange = 8, ProfileMismatch = 9
     };
 
-    static unsigned latency_cycles_from_configuration(std::uint16_t config);
     void apply_configuration_register0_write(std::uint16_t data,
                                              std::uint8_t mask);
     unsigned ca_setup_delay() const;
@@ -161,6 +163,7 @@ class HyperbusControllerModel {
     bool write_masks_enabled_ = true;
     bool write_updates_configuration_register0_ = false;
     bool write_pin_end_complete_ = false;
+    const controller_profile::ChipProfile* selected_profile_ = nullptr;
     bool cs_n_ = true;
     bool ck_ = false;
     bool dq_oe_ = false;
@@ -168,6 +171,32 @@ class HyperbusControllerModel {
     bool rwds_oe_ = false;
     bool rwds_o_ = false;
 };
+
+bool HyperbusControllerModel::select_profile(const char* name)
+{
+    const auto* profile = controller_profile::find(name ? name : "");
+    if (!profile)
+        return false;
+    selected_profile_ = profile;
+    set_configuration_register0(profile->cr0);
+    set_zero_latency_write_support(profile->zero_latency_memory_writes,
+        profile->zero_latency_register_writes, profile->zero_latency_write_rwds_low);
+    set_variable_read_latency_support(profile->variable_latency_supported,
+        profile->inter_word_variable_latency_supported, profile->read_stall_timeout_edges);
+    set_timing_profile(profile->t_rwr_4x_ticks, profile->t_css_4x_ticks,
+        profile->t_ca_setup_4x_ticks, profile->t_ca_hold_4x_ticks,
+        profile->t_write_setup_4x_ticks, profile->t_write_hold_4x_ticks,
+        profile->t_ck_high_min_4x_ticks, profile->t_ck_low_min_4x_ticks);
+    set_read_sampling_profile(profile->rwds_qualify_4x_ticks,
+        profile->dq_sample_delay_4x_ticks, profile->read_sample_timeout_4x_ticks);
+    set_read_error_profile(profile->initial_read_strobe_timeout_4x_ticks,
+        profile->read_byte_b_timeout_4x_ticks, profile->unexpected_rwds_fatal);
+    set_memory_geometry(profile->memory_density_bytes, profile->address_rollover);
+    set_reset_recovery(profile->t_reset_recovery_4x_ticks);
+    set_profile_discovery(profile->auto_profile_discovery, profile->adopt_discovered_cr0,
+        profile->id0, profile->id1, profile->cr0, profile->cr1);
+    return true;
+}
 
 void HyperbusControllerModel::reset()
 {
@@ -349,28 +378,6 @@ unsigned HyperbusControllerModel::clock_phase_delay() const
     const unsigned phase_min = ck_ ? t_ck_high_min_4x_ticks_
                                    : t_ck_low_min_4x_ticks_;
     return phase_min > 2 ? phase_min : 2;
-}
-
-unsigned HyperbusControllerModel::latency_cycles_from_configuration(
-    std::uint16_t config)
-{
-    switch ((config >> 4) & 0xfU) {
-      case 0x0: return 5;
-      case 0x1: return 6;
-      case 0x2: return 7;
-      case 0x3: return 8;
-      case 0x4: return 9;
-      case 0x5: return 10;
-      case 0x6: return 11;
-      case 0x7: return 12;
-      case 0x8: return 13;
-      case 0x9: return 14;
-      case 0xa: return 15;
-      case 0xb: return 16;
-      case 0xe: return 3;
-      case 0xf: return 4;
-      default: return 7;
-    }
 }
 
 void HyperbusControllerModel::apply_configuration_register0_write(
@@ -707,8 +714,10 @@ void HyperbusControllerModel::tick_4x(bool reset_n, std::uint8_t dq, bool rwds)
         write_masks_enabled_ = true;
         // RWDS High requests one additional initial-latency count. CR0's
         // latency code is expressed in CK cycles, each containing two edges.
-        latency_edges_remaining_ = latency_cycles_from_configuration(
-            configuration_register0_) * 2 * (rwds ? 2 : 1);
+        const auto latency = selected_profile_
+            ? selected_profile_->latency.initial_latency(configuration_register0_, rwds)
+            : controller_profile::InitialLatency{7, rwds};
+        latency_edges_remaining_ = latency.clock_cycles * 2U;
         pin_delay_4x_ticks_ = 2;
         pin_state_ = PinState::Latency;
         break;
@@ -863,62 +872,12 @@ static HyperbusControllerModel model;
 
 extern "C" {
 
+unsigned char hyperbus_controller_model_select_profile(const char* name)
+{
+    return model.select_profile(name) ? 1 : 0;
+}
+
 void hyperbus_controller_model_reset() { model.reset(); }
-void hyperbus_controller_model_set_configuration_register0(unsigned int value)
-{
-    model.set_configuration_register0(static_cast<std::uint16_t>(value));
-}
-void hyperbus_controller_model_set_zero_latency_write_support(
-    unsigned char memory_writes, unsigned char register_writes,
-    unsigned char rwds_low)
-{
-    model.set_zero_latency_write_support(memory_writes != 0,
-                                         register_writes != 0,
-                                         rwds_low != 0);
-}
-void hyperbus_controller_model_set_variable_read_latency_support(
-    unsigned char variable_latency, unsigned char inter_word_latency,
-    unsigned int stall_timeout_edges)
-{
-    model.set_variable_read_latency_support(variable_latency != 0,
-                                             inter_word_latency != 0,
-                                             stall_timeout_edges);
-}
-void hyperbus_controller_model_set_timing_profile(
-    unsigned int t_rwr, unsigned int t_css, unsigned int t_ca_setup,
-    unsigned int t_ca_hold, unsigned int t_write_setup,
-    unsigned int t_write_hold, unsigned int t_ck_high_min,
-    unsigned int t_ck_low_min)
-{
-    model.set_timing_profile(t_rwr, t_css, t_ca_setup, t_ca_hold,
-                             t_write_setup, t_write_hold, t_ck_high_min,
-                             t_ck_low_min);
-}
-void hyperbus_controller_model_set_read_sampling_profile(
-    unsigned int rwds_qualify_ticks, unsigned int dq_sample_delay_ticks,
-    unsigned int sample_timeout_ticks)
-{
-    model.set_read_sampling_profile(rwds_qualify_ticks,
-                                    dq_sample_delay_ticks,
-                                    sample_timeout_ticks);
-}
-void hyperbus_controller_model_set_read_error_profile(
-    unsigned int initial_strobe_timeout_ticks, unsigned int byte_b_timeout_ticks,
-    unsigned char unexpected_rwds_fatal)
-{
-    model.set_read_error_profile(initial_strobe_timeout_ticks,
-                                 byte_b_timeout_ticks,
-                                 unexpected_rwds_fatal != 0);
-}
-void hyperbus_controller_model_set_memory_geometry(unsigned int bytes,
-                                                   unsigned char rollover)
-{
-    model.set_memory_geometry(bytes, rollover != 0);
-}
-void hyperbus_controller_model_set_reset_recovery(unsigned int ticks) { model.set_reset_recovery(ticks); }
-void hyperbus_controller_model_set_profile_discovery(unsigned char enabled, unsigned char adopt_cr0,
-    unsigned int id0, unsigned int id1, unsigned int cr0, unsigned int cr1)
-{ model.set_profile_discovery(enabled != 0, adopt_cr0 != 0, id0, id1, cr0, cr1); }
 void hyperbus_controller_model_tick_system(unsigned char reset_n,
                                             unsigned char request_valid,
                                             unsigned char request_write,

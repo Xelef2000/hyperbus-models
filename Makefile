@@ -4,7 +4,9 @@ BUILD_DIR      ?= obj_dir
 SIM            := $(BUILD_DIR)/V$(TOP)
 
 SV_SOURCES     := tb.sv hyperram/hyperram.sv
-CPP_SOURCES    := hyperram/hyperram_model.cpp controller/hyperbus_controller_model.cpp
+CPP_SOURCES    := hyperram/hyperram_model.cpp controller/hyperbus_controller_model.cpp \
+	hyperram/profiles/hyperram_chip_profiles.cpp controller/profiles/controller_chip_profiles.cpp \
+	hyperram/profiles/hyperram_profiles.cpp controller/profiles/controller_profiles.cpp
 
 VERILATOR_FLAGS := \
 	--binary \

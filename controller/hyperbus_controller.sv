@@ -1,55 +1,9 @@
 `timescale 1ps/1ps
 
-// Small transaction-level shell for the new cycle-scheduled controller model.
-// `request_*` describes one HyperBus request. Linear memory bursts with
-// normal initial latency are implemented; other operations return an error.
+// SystemVerilog pin wrapper for the cycle-scheduled C++ controller model.
 /* verilator lint_off UNUSEDPARAM */
 module hyperbus_controller #(
-    // Device profile. Parameters marked future are exposed now so a board can
-    // describe any compliant slave before the corresponding controller state
-    // machine support is added.
-    parameter logic [15:0] IDENTIFICATION_REGISTER0_RESET = 16'h0c81,
-    parameter logic [15:0] IDENTIFICATION_REGISTER1_RESET = 16'h0001,
-    parameter logic [15:0] CONFIGURATION_REGISTER0_RESET = 16'h8f8f,
-    parameter logic [15:0] CONFIGURATION_REGISTER1_RESET = 16'hffc1,
-    parameter bit AUTO_PROFILE_DISCOVERY = 1'b0,
-    parameter bit ADOPT_DISCOVERED_CR0 = 1'b0,
-    parameter bit FIXED_LATENCY_RWDS_HIGH = 1'b1, // Future policy check.
-    parameter bit VARIABLE_LATENCY_SUPPORTED = 1'b0, // Future.
-    parameter int unsigned REFRESH_INTERVAL_4X_TICKS = 0, // Future.
-    parameter int unsigned REFRESH_BUSY_4X_TICKS = 0, // Future.
-    parameter bit ZERO_LATENCY_MEMORY_WRITES = 1'b0,
-    parameter bit ZERO_LATENCY_REGISTER_WRITES = 1'b0,
-    parameter bit ZERO_LATENCY_WRITE_RWDS_LOW = 1'b0,
-    parameter int unsigned T_RWR_4X_TICKS = 0, // Future.
-    parameter int unsigned T_CSS_4X_TICKS = 0, // Future.
-    parameter int unsigned T_RESET_RECOVERY_4X_TICKS = 0, // Future.
-    parameter bit DEEP_POWER_DOWN_SUPPORTED = 1'b0, // Future.
-    parameter int unsigned T_DPD_ENTRY_4X_TICKS = 0, // Future.
-    parameter int unsigned T_DPD_EXIT_4X_TICKS = 0, // Future.
-    parameter int unsigned T_CSDPD_4X_TICKS = 0, // Future.
-    parameter bit HYBRID_SLEEP_SUPPORTED = 1'b0, // Future.
-    parameter int unsigned T_HS_ENTRY_4X_TICKS = 0, // Future.
-    parameter int unsigned T_HS_EXIT_4X_TICKS = 0, // Future.
-    parameter int unsigned T_CSHS_4X_TICKS = 0, // Future.
-    parameter bit DIFFERENTIAL_CLOCK_MODE = 1'b0, // Future validation.
-    parameter int unsigned T_CA_SETUP_4X_TICKS = 0, // Future.
-    parameter int unsigned T_CA_HOLD_4X_TICKS = 0, // Future.
-    parameter int unsigned T_WRITE_SETUP_4X_TICKS = 0, // Future.
-    parameter int unsigned T_WRITE_HOLD_4X_TICKS = 0, // Future.
-    parameter int unsigned MEMORY_DENSITY_BYTES = 0,
-    parameter bit ADDRESS_ROLLOVER = 1'b1,
-    parameter bit INTER_WORD_VARIABLE_LATENCY_SUPPORTED = 1'b0,
-    parameter int unsigned INTER_WORD_STALL_EDGES = 0,
-    parameter int unsigned READ_STALL_TIMEOUT_EDGES = 64,
-    parameter int unsigned T_READ_RWDS_QUALIFY_4X_TICKS = 0,
-    parameter int unsigned T_READ_DQ_SAMPLE_DELAY_4X_TICKS = 0,
-    parameter int unsigned READ_SAMPLE_TIMEOUT_4X_TICKS = 64,
-    parameter int unsigned INITIAL_READ_STROBE_TIMEOUT_4X_TICKS = 0,
-    parameter int unsigned READ_BYTE_B_TIMEOUT_4X_TICKS = 0,
-    parameter bit UNEXPECTED_RWDS_FATAL = 1'b1,
-    parameter int unsigned T_CK_HIGH_MIN_4X_TICKS = 0, // Future.
-    parameter int unsigned T_CK_LOW_MIN_4X_TICKS = 0 // Future.
+    parameter string CHIP_PROFILE = "generic_hyperram_controller"
 ) (
     input  logic        clk,
     input  logic        clk_4x,
@@ -93,42 +47,7 @@ module hyperbus_controller #(
 );
 
     import "DPI-C" function void hyperbus_controller_model_reset();
-    import "DPI-C" function void hyperbus_controller_model_set_configuration_register0(
-        input int unsigned value
-    );
-    import "DPI-C" function void hyperbus_controller_model_set_zero_latency_write_support(
-        input bit memory_writes, input bit register_writes, input bit rwds_low
-    );
-    import "DPI-C" function void hyperbus_controller_model_set_variable_read_latency_support(
-        input bit variable_latency, input bit inter_word_latency,
-        input int unsigned stall_timeout_edges
-    );
-    import "DPI-C" function void hyperbus_controller_model_set_timing_profile(
-        input int unsigned t_rwr, input int unsigned t_css,
-        input int unsigned t_ca_setup, input int unsigned t_ca_hold,
-        input int unsigned t_write_setup, input int unsigned t_write_hold,
-        input int unsigned t_ck_high_min, input int unsigned t_ck_low_min
-    );
-    import "DPI-C" function void hyperbus_controller_model_set_read_sampling_profile(
-        input int unsigned rwds_qualify_ticks,
-        input int unsigned dq_sample_delay_ticks,
-        input int unsigned sample_timeout_ticks
-    );
-    import "DPI-C" function void hyperbus_controller_model_set_read_error_profile(
-        input int unsigned initial_strobe_timeout_ticks,
-        input int unsigned byte_b_timeout_ticks,
-        input bit unexpected_rwds_fatal
-    );
-    import "DPI-C" function void hyperbus_controller_model_set_memory_geometry(
-        input int unsigned bytes, input bit rollover
-    );
-    import "DPI-C" function void hyperbus_controller_model_set_reset_recovery(
-        input int unsigned ticks
-    );
-    import "DPI-C" function void hyperbus_controller_model_set_profile_discovery(
-        input bit enabled, input bit adopt_cr0, input int unsigned id0,
-        input int unsigned id1, input int unsigned cr0, input int unsigned cr1
-    );
+    import "DPI-C" function bit hyperbus_controller_model_select_profile(input string name);
     import "DPI-C" function void hyperbus_controller_model_tick_system(
         input bit reset_n, input bit request_valid, input bit request_write,
         input bit request_register_space, input bit request_linear_burst,
@@ -180,46 +99,9 @@ module hyperbus_controller #(
     endtask
 
     initial begin
+        if (!hyperbus_controller_model_select_profile(CHIP_PROFILE))
+            $fatal(1, "Unknown HyperBus controller chip profile: %s", CHIP_PROFILE);
         hyperbus_controller_model_reset();
-        hyperbus_controller_model_set_configuration_register0(
-            {16'b0, CONFIGURATION_REGISTER0_RESET}
-        );
-        hyperbus_controller_model_set_zero_latency_write_support(
-            ZERO_LATENCY_MEMORY_WRITES, ZERO_LATENCY_REGISTER_WRITES,
-            ZERO_LATENCY_WRITE_RWDS_LOW
-        );
-        hyperbus_controller_model_set_variable_read_latency_support(
-            VARIABLE_LATENCY_SUPPORTED,
-            INTER_WORD_VARIABLE_LATENCY_SUPPORTED,
-            READ_STALL_TIMEOUT_EDGES
-        );
-        hyperbus_controller_model_set_timing_profile(
-            T_RWR_4X_TICKS, T_CSS_4X_TICKS, T_CA_SETUP_4X_TICKS,
-            T_CA_HOLD_4X_TICKS, T_WRITE_SETUP_4X_TICKS,
-            T_WRITE_HOLD_4X_TICKS, T_CK_HIGH_MIN_4X_TICKS,
-            T_CK_LOW_MIN_4X_TICKS
-        );
-        hyperbus_controller_model_set_read_sampling_profile(
-            T_READ_RWDS_QUALIFY_4X_TICKS,
-            T_READ_DQ_SAMPLE_DELAY_4X_TICKS,
-            READ_SAMPLE_TIMEOUT_4X_TICKS
-        );
-        hyperbus_controller_model_set_read_error_profile(
-            INITIAL_READ_STROBE_TIMEOUT_4X_TICKS,
-            READ_BYTE_B_TIMEOUT_4X_TICKS,
-            UNEXPECTED_RWDS_FATAL
-        );
-        hyperbus_controller_model_set_memory_geometry(
-            MEMORY_DENSITY_BYTES, ADDRESS_ROLLOVER
-        );
-        hyperbus_controller_model_set_reset_recovery(T_RESET_RECOVERY_4X_TICKS);
-        hyperbus_controller_model_set_profile_discovery(
-            AUTO_PROFILE_DISCOVERY, ADOPT_DISCOVERED_CR0,
-            {16'b0, IDENTIFICATION_REGISTER0_RESET},
-            {16'b0, IDENTIFICATION_REGISTER1_RESET},
-            {16'b0, CONFIGURATION_REGISTER0_RESET},
-            {16'b0, CONFIGURATION_REGISTER1_RESET}
-        );
         sample_outputs();
     end
 

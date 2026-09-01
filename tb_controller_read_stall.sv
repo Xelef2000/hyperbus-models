@@ -28,13 +28,7 @@ module tb_controller_read_stall;
     assign dq = dq_oe ? dq_o : {8{1'bz}};
     assign rwds = rwds_oe ? rwds_o : 1'bz;
 
-    hyperbus_controller #(
-        .CONFIGURATION_REGISTER0_RESET(16'h8f8f),
-        .VARIABLE_LATENCY_SUPPORTED(1'b1),
-        .INTER_WORD_VARIABLE_LATENCY_SUPPORTED(1'b1),
-        .INTER_WORD_STALL_EDGES(2),
-        .READ_STALL_TIMEOUT_EDGES(8)
-    ) controller (
+    hyperbus_controller #(.CHIP_PROFILE("test_read_stall")) controller (
         .clk, .clk_4x, .reset_n,
         .request_valid_i(request_valid), .request_ready_o(request_ready),
         .request_write_i(request_write),
@@ -52,15 +46,7 @@ module tb_controller_read_stall;
         .hyper_rwds_oe_o(rwds_oe), .hyper_rwds_o(rwds_o), .hyper_rwds_i(rwds)
     );
 
-    hyperram #(
-        .CONFIGURATION_REGISTER0_RESET(16'h8f8f),
-        .FIXED_LATENCY_RWDS_HIGH(1'b0),
-        .VARIABLE_LATENCY_SUPPORTED(1'b1),
-        .INTER_WORD_VARIABLE_LATENCY_SUPPORTED(1'b1),
-        .INTER_WORD_STALL_EDGES(2),
-        .T_DQ_OUTPUT_DELAY(0), .T_RWDS_OUTPUT_DELAY(0),
-        .T_DQ_OUTPUT_DISABLE_DELAY(0), .T_RWDS_OUTPUT_DISABLE_DELAY(0)
-    ) memory (
+    hyperram #(.CHIP_PROFILE("test_read_stall")) memory (
         .clk, .clk_4x, .reset_n, .cs_n, .ck, .ck_n, .dq, .rwds
     );
 

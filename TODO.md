@@ -1,21 +1,5 @@
 # HyperBus implementation checklist
 
-Reference: *Infineon HyperBus Specification — Low Signal Count, High
-Performance DDR Bus*. This checklist tracks a cycle-accurate HyperBus
-implementation. The project now contains separate C++/SystemVerilog slave and
-master models. Master checkmarks describe the transaction-level controller's
-implemented behavior; unchecked items remain necessary for cycle-accurate
-support of every compliant slave profile.
-
-## Cycle-accuracy acceptance criterion
-
-A feature is complete only when the model matches the specification on every
-clock edge for **all valid transactions** covered by that feature: pin
-ownership and values (`CS#`, `CK`/`CK#`, `DQ`, and `RWDS`), latency, DDR edge
-alignment, legal termination, and the resulting memory/register/device state.
-Matching only the final read or written value is insufficient. Each checked
-item below reflects currently implemented basic behavior, not a claim that the
-overall transaction class is cycle-accurate yet.
 
 ## Slave model
 

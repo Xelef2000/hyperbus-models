@@ -4,6 +4,13 @@ This project provides cycle-scheduled C++ HyperRAM slave and controller
 models, each exposed through a SystemVerilog pin wrapper. The directed tests
 exercise the C++ protocol and memory cores.
 
+## Chip configuration
+
+Each wrapper selects one named C++ profile through its sole configuration
+parameter, `CHIP_PROFILE`. HyperRAM and controller profiles are separate and
+can be selected independently. See [`profiles/README.md`](profiles/README.md)
+for the registry layout and how to add a chip-specific profile.
+
 ## Run
 
 ```sh

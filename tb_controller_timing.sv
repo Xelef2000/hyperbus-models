@@ -60,13 +60,7 @@ module tb_controller_timing;
         last_ck_edge_time = $time;
     end
 
-    hyperbus_controller #(
-        .CONFIGURATION_REGISTER0_RESET(16'h8f8f),
-        .T_RWR_4X_TICKS(6), .T_CSS_4X_TICKS(4),
-        .T_CA_SETUP_4X_TICKS(3), .T_CA_HOLD_4X_TICKS(2),
-        .T_WRITE_SETUP_4X_TICKS(3), .T_WRITE_HOLD_4X_TICKS(2),
-        .T_CK_HIGH_MIN_4X_TICKS(4), .T_CK_LOW_MIN_4X_TICKS(4)
-    ) controller (
+    hyperbus_controller #(.CHIP_PROFILE("test_timing")) controller (
         .clk, .clk_4x, .reset_n,
         .request_valid_i(request_valid), .request_ready_o(request_ready),
         .request_write_i(request_write),
@@ -84,16 +78,7 @@ module tb_controller_timing;
         .hyper_rwds_oe_o(rwds_oe), .hyper_rwds_o(rwds_o), .hyper_rwds_i(rwds)
     );
 
-    hyperram #(
-        .CONFIGURATION_REGISTER0_RESET(16'h8f8f),
-        .FIXED_LATENCY_RWDS_HIGH(1'b0),
-        .T_RWR_4X_TICKS(6), .T_CSS_4X_TICKS(4),
-        .T_CA_SETUP_4X_TICKS(3), .T_CA_HOLD_4X_TICKS(2),
-        .T_WRITE_SETUP_4X_TICKS(3), .T_WRITE_HOLD_4X_TICKS(2),
-        .T_CK_HIGH_MIN_4X_TICKS(4), .T_CK_LOW_MIN_4X_TICKS(4),
-        .T_DQ_OUTPUT_DELAY(0), .T_RWDS_OUTPUT_DELAY(0),
-        .T_DQ_OUTPUT_DISABLE_DELAY(0), .T_RWDS_OUTPUT_DISABLE_DELAY(0)
-    ) memory (
+    hyperram #(.CHIP_PROFILE("test_timing")) memory (
         .clk, .clk_4x, .reset_n, .cs_n, .ck, .ck_n, .dq, .rwds
     );
 
